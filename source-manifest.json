@@ -5,12 +5,17 @@
   "vendor_assemblies_included": false,
   "sample_or_reference_images_included": false,
   "NativeFullMapFidelity": "not_accepted",
-  "file_count": 42,
+  "file_count": 43,
   "files": [
     {
-      "relative_path": ".gitignore",
-      "sha256": "B6C222D9522A952697F143105B5FDC017AC2A86C7BCF11B9199C5D45813DC961",
-      "bytes": 151
+      "relative_path": ".gitattributes",
+      "sha256": "87387B2410F709075B01DB9092F14AB1CEFBF02AD790077D57914A243D37F5C0",
+      "bytes": 45
+    },
+    {
+      "relative_path": "assets/aztec-native-toolchain/03_tools/scripts/probe_aztec_boundary_determinism.ps1",
+      "sha256": "99A6F8130E8FAFC678A964013F74D48594EECDF02D2D08BD51197437E3B49305",
+      "bytes": 3761
     },
     {
       "relative_path": "assets/aztec-native-toolchain/03_tools/scripts/render_aztec_native_scalar_canvas.ps1",
@@ -48,14 +53,14 @@
       "bytes": 3882
     },
     {
+      "relative_path": "assets/aztec-native-toolchain/03_tools/scripts/export_aztec_native_scalar_bmp.ps1",
+      "sha256": "BB91B9FB79503BE19E3419ED903BFB45F52D063494F768F24464F5D25105202D",
+      "bytes": 8246
+    },
+    {
       "relative_path": "references/aztec-native-cleanup.md",
       "sha256": "B16C18CD37EB0EE4EE0E40E5467B85B6C49A469576EFC4094C9216748F748872",
       "bytes": 1464
-    },
-    {
-      "relative_path": "references/aztec-native-toolchain.md",
-      "sha256": "286BA5EEB1EAA17D5A3F74C6CE9DDB0B414482F2F6853B339E8A7F7A0B0E71AA",
-      "bytes": 1278
     },
     {
       "relative_path": "references/cleanup-metrics-and-mtex.md",
@@ -98,14 +103,14 @@
       "bytes": 7071
     },
     {
-      "relative_path": "assets/aztec-native-toolchain/03_tools/scripts/probe_aztec_boundary_determinism.ps1",
-      "sha256": "99A6F8130E8FAFC678A964013F74D48594EECDF02D2D08BD51197437E3B49305",
-      "bytes": 3761
+      "relative_path": "references/aztec-native-toolchain.md",
+      "sha256": "286BA5EEB1EAA17D5A3F74C6CE9DDB0B414482F2F6853B339E8A7F7A0B0E71AA",
+      "bytes": 1278
     },
     {
-      "relative_path": "assets/aztec-native-toolchain/03_tools/scripts/export_aztec_native_scalar_bmp.ps1",
-      "sha256": "BB91B9FB79503BE19E3419ED903BFB45F52D063494F768F24464F5D25105202D",
-      "bytes": 8246
+      "relative_path": "scripts/native-cleanup/verify_aztec_native_cleanup_run.ps1",
+      "sha256": "1A62034649322DB412EEF9070C3874247851BFD116FE18392C0E3CFD5CAA828B",
+      "bytes": 12747
     },
     {
       "relative_path": "assets/aztec-native-toolchain/03_tools/scripts/export_aztec_native_kam_gos.ps1",
@@ -113,9 +118,14 @@
       "bytes": 5902
     },
     {
-      "relative_path": "assets/aztec-native-toolchain/03_tools/scripts/export_aztec_native_gos_pixels.ps1",
-      "sha256": "176012AFE923E03621CCB23A7AC60C13F9A7F8171F8EAC1476ED7E53FE77328D",
-      "bytes": 4745
+      "relative_path": "assets/aztec-native-toolchain/03_tools/scripts/AztecNativeIpfKeyProbe.cs",
+      "sha256": "BBD698A05A01DE81FA987EB3B6E9DBB6978214114E33724C43B207C9592052C6",
+      "bytes": 10036
+    },
+    {
+      "relative_path": ".gitignore",
+      "sha256": "B6C222D9522A952697F143105B5FDC017AC2A86C7BCF11B9199C5D45813DC961",
+      "bytes": 151
     },
     {
       "relative_path": "BINARY-DISTRIBUTION.md",
@@ -153,19 +163,19 @@
       "bytes": 8307
     },
     {
+      "relative_path": "assets/aztec-native-toolchain/03_tools/scripts/export_aztec_native_gos_pixels.ps1",
+      "sha256": "176012AFE923E03621CCB23A7AC60C13F9A7F8171F8EAC1476ED7E53FE77328D",
+      "bytes": 4745
+    },
+    {
       "relative_path": "assets/aztec-native-toolchain/03_tools/aztec_exporter/AZtecBmpExporter.cs",
       "sha256": "FFE53BCB3FCD450EEBB2122F1831FC5B8AB0FA40180E39CC411FF22BE7568397",
       "bytes": 10880
     },
     {
-      "relative_path": "scripts/native-cleanup/verify_aztec_native_cleanup_run.ps1",
-      "sha256": "1A62034649322DB412EEF9070C3874247851BFD116FE18392C0E3CFD5CAA828B",
-      "bytes": 12747
-    },
-    {
-      "relative_path": "assets/aztec-native-toolchain/03_tools/aztec_exporter/build.ps1",
-      "sha256": "DE718A5CF48808F80EC7493C15BB65FFEA83AA71A5CAC062C47294DC9F74155C",
-      "bytes": 733
+      "relative_path": "assets/aztec-native-toolchain/03_tools/aztec_exporter/export.ps1",
+      "sha256": "9633DB564E0F5B893B28B2CF50BAE5353253D3135B7969BC2772242FA2A7AC2A",
+      "bytes": 30046
     },
     {
       "relative_path": "assets/aztec-native-toolchain/03_tools/aztec_exporter/native_gos.ps1",
@@ -203,14 +213,9 @@
       "bytes": 22301
     },
     {
-      "relative_path": "assets/aztec-native-toolchain/03_tools/scripts/AztecNativeIpfKeyProbe.cs",
-      "sha256": "BBD698A05A01DE81FA987EB3B6E9DBB6978214114E33724C43B207C9592052C6",
-      "bytes": 10036
-    },
-    {
-      "relative_path": "assets/aztec-native-toolchain/03_tools/aztec_exporter/export.ps1",
-      "sha256": "9633DB564E0F5B893B28B2CF50BAE5353253D3135B7969BC2772242FA2A7AC2A",
-      "bytes": 30046
+      "relative_path": "assets/aztec-native-toolchain/03_tools/aztec_exporter/build.ps1",
+      "sha256": "DE718A5CF48808F80EC7493C15BB65FFEA83AA71A5CAC062C47294DC9F74155C",
+      "bytes": 733
     },
     {
       "relative_path": "tests/smoke.ps1",

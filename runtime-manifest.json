@@ -2,25 +2,20 @@
   "schema_version": 1,
   "package_id": "aztec-ebsd-source-build",
   "validated_aztec_version": "5.1.7829.1",
-  "file_count": 21,
+  "file_count": 22,
   "NativeFullMapFidelity": "not_accepted",
   "vendor_assemblies_included": false,
   "sample_or_reference_images_included": false,
   "files": [
     {
-      "relative_path": ".gitignore",
-      "sha256": "B6C222D9522A952697F143105B5FDC017AC2A86C7BCF11B9199C5D45813DC961",
-      "bytes": 151
+      "relative_path": ".gitattributes",
+      "sha256": "87387B2410F709075B01DB9092F14AB1CEFBF02AD790077D57914A243D37F5C0",
+      "bytes": 45
     },
     {
       "relative_path": "references/aztec-native-cleanup.md",
       "sha256": "B16C18CD37EB0EE4EE0E40E5467B85B6C49A469576EFC4094C9216748F748872",
       "bytes": 1464
-    },
-    {
-      "relative_path": "references/aztec-native-toolchain.md",
-      "sha256": "286BA5EEB1EAA17D5A3F74C6CE9DDB0B414482F2F6853B339E8A7F7A0B0E71AA",
-      "bytes": 1278
     },
     {
       "relative_path": "references/cleanup-metrics-and-mtex.md",
@@ -63,6 +58,21 @@
       "bytes": 7071
     },
     {
+      "relative_path": "references/aztec-native-toolchain.md",
+      "sha256": "286BA5EEB1EAA17D5A3F74C6CE9DDB0B414482F2F6853B339E8A7F7A0B0E71AA",
+      "bytes": 1278
+    },
+    {
+      "relative_path": "scripts/native-cleanup/verify_aztec_native_cleanup_run.ps1",
+      "sha256": "1A62034649322DB412EEF9070C3874247851BFD116FE18392C0E3CFD5CAA828B",
+      "bytes": 12747
+    },
+    {
+      "relative_path": ".gitignore",
+      "sha256": "B6C222D9522A952697F143105B5FDC017AC2A86C7BCF11B9199C5D45813DC961",
+      "bytes": 151
+    },
+    {
       "relative_path": "BINARY-DISTRIBUTION.md",
       "sha256": "16368D6919A47992F300B210FA8FEFFC62BC5DBD1A681D83FC550118B1DB545B",
       "bytes": 1092
@@ -93,23 +103,18 @@
       "bytes": 40
     },
     {
-      "relative_path": "scripts/native-cleanup/verify_aztec_native_cleanup_run.ps1",
-      "sha256": "1A62034649322DB412EEF9070C3874247851BFD116FE18392C0E3CFD5CAA828B",
-      "bytes": 12747
-    },
-    {
       "relative_path": "tests/smoke.ps1",
       "sha256": "3B8880E3319E44CD5CD0D5292693D916145FDF9594125ED6A43B5C338C55AD1F",
       "bytes": 6736
     },
     {
       "relative_path": "source-manifest.json",
-      "sha256": "2470D0AD14656DA068CA7E169B563B56B50E234250C4A9EFE05CF805B5FB7F98",
-      "bytes": 8815
+      "sha256": "78A2044BDC223C24F69456CA584499F94802E0CFA3D568366F2ECB73EE552419",
+      "bytes": 8976
     },
     {
       "relative_path": "assets/aztec-native-toolchain/toolchain-manifest.json",
-      "sha256": "432D84E70A51B67CCF9A04901B53A2327F34106089FD0E8364466E08233CBFCA",
+      "sha256": "2584D323F67286692F86DDA20BFFFF7C1EB30EE8A6025BD540EF345CF32A4754",
       "bytes": 5547
     }
   ]
