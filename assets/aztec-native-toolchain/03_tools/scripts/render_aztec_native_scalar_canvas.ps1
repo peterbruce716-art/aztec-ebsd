@@ -1,4 +1,4 @@
-﻿param(
+param(
     [Parameter(Mandatory = $true)] [ValidateSet('KAM', 'GOS')] [string] $Metric,
     [Parameter(Mandatory = $true)] [string] $PointBmp,
     [Parameter(Mandatory = $true)] [string] $OutputBmp,

@@ -1,4 +1,4 @@
-﻿param(
+param(
     [int[]] $Samples = @(1,2,3),
     [string] $OutputRoot = $PSScriptRoot,
     [ValidateRange(10,600)] [int] $TimeoutSeconds = 180,

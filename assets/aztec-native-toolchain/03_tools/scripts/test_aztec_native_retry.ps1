@@ -1,7 +1,7 @@
-﻿param([string]$OutputDirectory='')
+param([string]$OutputDirectory='')
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
-if(-not $OutputDirectory){$OutputDirectory=Join-Path ([IO.Path]::GetTempPath()) ('aztec-native-retry-test_'+[Guid]::NewGuid().ToString('N'))}
+if(-not $OutputDirectory){$OutputDirectory=Join-Path $root ([IO.Path]::GetTempPath() + 'aztec-native-retry-' + [Guid]::NewGuid().ToString('N'))}
 $testRoot=[IO.Path]::GetFullPath($OutputDirectory)
 if(Test-Path -LiteralPath $testRoot){throw 'test_output_must_be_new'}
 [IO.Directory]::CreateDirectory($testRoot)|Out-Null

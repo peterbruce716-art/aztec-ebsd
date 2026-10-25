@@ -45,6 +45,40 @@ function Settings-Row($s){
     if($s.GetType().Name -eq 'ZeroSolutionRemovalSettings'){$row.agreeing_neighbours=8-[int]$s.Level}
     return $row
 }
+function Get-SmallComponentMask($d,[int]$ThresholdPixels=10){
+    if($ThresholdPixels -ne 10){throw 'small_component_threshold_must_be_10'}
+    $width=[int]$d.XCount; $height=[int]$d.YCount; $count=[int]$d.PixelCount
+    if($width -lt 1 -or $height -lt 1 -or $width*$height -ne $count){throw 'small_component_requires_rectangular_grid'}
+    $phase=$d.PhaseID
+    $seen=[bool[]]::new($count)
+    $mask=[Collections.BitArray]::new($count)
+    $dirs=@(@(-1,-1),@(-1,0),@(-1,1),@(0,-1),@(0,1),@(1,-1),@(1,0),@(1,1))
+    $components=0; $candidateComponents=0; $pixels=0
+    for($start=0;$start -lt $count;$start++){
+        if($seen[$start]){continue}
+        $seen[$start]=$true
+        $phaseId=[int]$phase.GetItem($start)
+        $queue=[Collections.Generic.Queue[int]]::new(); $members=[Collections.Generic.List[int]]::new(); $queue.Enqueue($start)
+        while($queue.Count -gt 0){
+            $index=$queue.Dequeue(); $members.Add($index)
+            $x=$index % $width; $y=[int][math]::Floor($index / $width)
+            foreach($dir in $dirs){
+                $nx=$x+$dir[0]; $ny=$y+$dir[1]
+                if($nx -lt 0 -or $nx -ge $width -or $ny -lt 0 -or $ny -ge $height){continue}
+                $neighbor=$ny*$width+$nx
+                if(-not $seen[$neighbor] -and [int]$phase.GetItem($neighbor) -eq $phaseId){$seen[$neighbor]=$true;$queue.Enqueue($neighbor)}
+            }
+        }
+        $components++
+        if($phaseId -gt 0 -and $members.Count -lt $ThresholdPixels){
+            $candidateComponents++
+            $pixels += $members.Count
+            foreach($index in $members){$mask.Set($index,$true)}
+        }
+    }
+    [pscustomobject]@{mask=$mask;component_count=$components;candidate_component_count=$candidateComponents;candidate_pixel_count=$pixels;threshold_pixels=$ThresholdPixels;connectivity='EightNeighbors'}
+}
+function Get-ActualZeroCount($d){$phase=$d.PhaseID;$count=0;for($index=0;$index -lt [int]$d.PixelCount;$index++){if([int]$phase.GetItem($index) -eq 0){$count++}};return $count}
 try{
     if($PSVersionTable.PSEdition -ne 'Desktop' -or [Threading.Thread]::CurrentThread.ApartmentState -ne 'STA'){throw 'requires_framework_sta_worker'}
     if(-not [IO.Directory]::Exists($run)){throw 'run_directory_missing'}
@@ -57,13 +91,15 @@ try{
     if($project.DatasetCount -ne 1){throw 'requires_single_dataset'}
     $dataset=$project.Datasets[0]
     if(-not $dataset.IsPopulated){throw 'native_dataset_not_populated'}
+    if(-not ($dataset -is [Core.Ebsd.Infrastructure.IDataset])){throw 'native_dataset_not_IDataset'}
+    $initialDatasetIdentity=[System.Runtime.CompilerServices.RuntimeHelpers]::GetHashCode($dataset)
     $geometry=Geometry $dataset
     if($dataset.ZCount -ne 1 -or $dataset.TCount -ne 1 -or $dataset.XCount*$dataset.YCount -ne $dataset.PixelCount){throw 'requires_rectangular_2d_grid'}
     $initial=[NativeCleanupSnapshot]::Capture($dataset)
     $initialSnapshotHash=$initial.Hash($false)
     $initialQualityHash=$initial.Hash($true)
     if($Mode -eq 'clean'){Append-ProgressEvent ([ordered]@{event='run_started';mode=$Mode;audit_mode=$AuditMode;progress_checkpoint_every=$ProgressCheckpointEvery;source=$source;geometry=$geometry})}
-    $initialZero=$dataset.ZeroSolutionCount
+    $initialZero=Get-ActualZeroCount $dataset
     if($Mode -eq 'readback'){
         $expected=[NativeCleanupSnapshot]::Load((Join-Path $run 'expected.snapshot'))
         $worker=Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $run 'clean-worker.json')|ConvertFrom-Json
@@ -80,7 +116,19 @@ try{
     $tools=$dataset.DataCleanUp
     $settings=$tools.Settings
     if(@($settings.AutoCleanUpSettings.Sequence).Count -eq 0){throw 'native_autoclean_sequence_empty'}
-    foreach($autoSetting in $settings.AutoCleanUpSettings.Sequence){if($autoSetting.GetType().FullName -notin @('Core.Ebsd.DataCleanUp.WildSpikeRemovalSettings','Core.Ebsd.DataCleanUp.ZeroSolutionRemovalSettings')){throw 'unsupported_or_pseudo_autoclean_step'}}
+    $wildSpikeMaximumPixelSize=[Core.Ebsd.DataCleanUp.WildSpikeRemovalMaximumPixelSize]::FourPixels
+    $settings.WildSpikeRemovalSettings.MaximumPixelSize=$wildSpikeMaximumPixelSize
+    $wildSpikeAutoSettingCount=0
+    foreach($autoSetting in $settings.AutoCleanUpSettings.Sequence){
+        $autoSettingType=$autoSetting.GetType().FullName
+        if($autoSettingType -notin @('Core.Ebsd.DataCleanUp.WildSpikeRemovalSettings','Core.Ebsd.DataCleanUp.ZeroSolutionRemovalSettings')){throw 'unsupported_or_pseudo_autoclean_step'}
+        if($autoSettingType -eq 'Core.Ebsd.DataCleanUp.WildSpikeRemovalSettings'){
+            $autoSetting.MaximumPixelSize=$wildSpikeMaximumPixelSize
+            $wildSpikeAutoSettingCount++
+        }
+    }
+    if($wildSpikeAutoSettingCount -eq 0){throw 'native_autoclean_wild_spike_step_missing'}
+    if($settings.WildSpikeRemovalSettings.MaximumPixelSize -ne $wildSpikeMaximumPixelSize){throw 'native_wild_spike_pixel_limit_not_applied'}
     $settings.ZeroSolutionRemovalSettings.Iterate=$true
     $settings.ZeroSolutionRemovalSettings.MaxIterations=50
     $settings.KuwaharaFilterSettings.FilterType=[Core.Ebsd.DataCleanUp.KuwaharaFilterType]::Quadrants
@@ -91,11 +139,16 @@ try{
         $configuration=Settings-Row $s
         $step=$s.GetCleanUpStep($tools)
         if($step.GetType().Namespace -ne 'Core.Ebsd.DataCleanUp'){throw 'non_native_cleanup_step'}
-        $beforeZero=$state.dataset.ZeroSolutionCount
+        $inputDataset=[Core.Ebsd.Infrastructure.IDataset]$state.dataset
+        $inputDatasetIdentity=[System.Runtime.CompilerServices.RuntimeHelpers]::GetHashCode($inputDataset)
+        $beforeZero=Get-ActualZeroCount $state.dataset
         $watch=[Diagnostics.Stopwatch]::StartNew()
         $cancel=[Threading.CancellationTokenSource]::new()
-        try{$next=$step.Populate($state.dataset,$cancel,($stages.Count -eq 0))}finally{$cancel.Dispose();$watch.Stop()}
+        try{$next=$step.Populate($inputDataset,$cancel,($stages.Count -eq 0))}finally{$cancel.Dispose();$watch.Stop()}
         if($null -eq $next){throw ('native_step_returned_null:'+$name)}
+        if(-not ($next -is [Core.Ebsd.Infrastructure.IDataset])){throw ('native_step_result_not_IDataset:'+$name)}
+        $outputDataset=[Core.Ebsd.Infrastructure.IDataset]$next
+        $outputDatasetIdentity=[System.Runtime.CompilerServices.RuntimeHelpers]::GetHashCode($outputDataset)
         $resultText=[string]$step.Result
         if($AuditMode -eq 'Strict'){
             $after=[NativeCleanupSnapshot]::Capture($next)
@@ -108,24 +161,53 @@ try{
             $snapshotHash=Compact-StageHash $name $beforeZero $next.ZeroSolutionCount $resultText $step.PixelReplacedCount
             $qualityMatch=$null
         }
-        $stage=[ordered]@{name=$name;status='executed';native_type=$step.GetType().FullName;settings=$configuration;result=$resultText;pixel_replaced_count=$step.PixelReplacedCount;changed_points=$changed;stage_audit=if($AuditMode -eq 'Strict'){'full_snapshot'}else{'deferred_to_final'};before_zero=$beforeZero;after_zero=$next.ZeroSolutionCount;intermediate_quality_matches_source=$qualityMatch;seconds=$watch.Elapsed.TotalSeconds}
+        $afterZero=Get-ActualZeroCount $outputDataset
+        $stage=[ordered]@{name=$name;status='executed';native_type=$step.GetType().FullName;settings=$configuration;result=$resultText;pixel_replaced_count=$step.PixelReplacedCount;changed_points=$changed;stage_audit=if($AuditMode -eq 'Strict'){'full_snapshot'}else{'deferred_to_final'};input_is_native_IDataset=$true;output_is_native_IDataset=$true;input_dataset_identity=$inputDatasetIdentity;output_dataset_identity=$outputDatasetIdentity;before_zero=$beforeZero;after_zero=$afterZero;intermediate_quality_matches_source=$qualityMatch;seconds=$watch.Elapsed.TotalSeconds}
         if($AuditMode -eq 'Strict'){$stage.snapshot_sha256=$snapshotHash}else{$stage.stage_record_sha256=$snapshotHash}
         $stages.Add($stage)
-        $state.dataset=$next
+        $state.dataset=$outputDataset
         if($AuditMode -eq 'Strict'){$state.snapshot=$after}
         Append-ProgressEvent ([ordered]@{event='stage';index=$stages.Count;stage=$stage})
         if($stages.Count % $ProgressCheckpointEvery -eq 0){Write-ProgressCheckpoint 'running' $stages $stage}
     }
     $cycles=0
     for($cycle=1;$cycle -le $MaxZeroCycles;$cycle++){
-        $cycleBefore=$state.dataset.ZeroSolutionCount
+        $cycleBefore=Get-ActualZeroCount $state.dataset
         foreach($level in 0..7){$settings.ZeroSolutionRemovalSettings.Level=$level;Run-NativeStep $settings.ZeroSolutionRemovalSettings ('zero_'+(8-$level))}
         $cycles=$cycle
-        if($state.dataset.ZeroSolutionCount -ge $cycleBefore){break}
+        if((Get-ActualZeroCount $state.dataset) -ge $cycleBefore){break}
     }
-    Run-NativeStep $settings.WildSpikeRemovalSettings 'wild_spike'
-    foreach($pass in 1..5){Run-NativeStep $settings.AutoCleanUpSettings ('auto_'+$pass)}
+    $wildSpikePasses=1
+    for($pass=1;$pass -le $wildSpikePasses;$pass++){Run-NativeStep $settings.WildSpikeRemovalSettings 'wild_spike'}
+    $smallComponentThresholdPixels=10
+    $smallBefore=Get-SmallComponentMask $state.dataset $smallComponentThresholdPixels
+    $smallBeforeZero=$state.dataset.ZeroSolutionCount
+    $smallInputIdentity=[System.Runtime.CompilerServices.RuntimeHelpers]::GetHashCode([Core.Ebsd.Infrastructure.IDataset]$state.dataset)
+    $smallWatch=[Diagnostics.Stopwatch]::StartNew()
+    $state.dataset.Data.Nullify($smallBefore.mask)
+    $smallWatch.Stop()
+    $smallAfter=Get-SmallComponentMask $state.dataset $smallComponentThresholdPixels
+    $smallChanged=$smallBefore.candidate_pixel_count
+    $state.snapshot=[NativeCleanupSnapshot]::Capture($state.dataset)
+    $smallAfterZero=Get-ActualZeroCount $state.dataset
+    $smallStageHash=Compact-StageHash 'small_component_lt10' $smallBeforeZero $smallAfterZero ('Nullify ' + $smallChanged + ' pixels') $smallChanged
+    $smallStage=[ordered]@{name='small_component_lt10';status='executed';native_type='Core.Ebsd.Infrastructure.RawData.Nullify';settings=[ordered]@{threshold_pixels=10;connectivity='EightNeighbors';component_rule='same_phase_and_phase_gt_zero';action='native_RawData.Nullify_BitArray'};result=('{0} pixels nulled in {1} candidate components' -f $smallChanged,$smallBefore.candidate_component_count);pixel_replaced_count=$smallChanged;changed_points=$smallChanged;stage_audit='native_masked';input_is_native_IDataset=$true;output_is_native_IDataset=$true;input_dataset_identity=$smallInputIdentity;output_dataset_identity=$smallInputIdentity;before_zero=$smallBeforeZero;after_zero=$smallAfterZero;intermediate_quality_matches_source=$null;seconds=$smallWatch.Elapsed.TotalSeconds;component_count=$smallBefore.component_count;candidate_component_count=$smallBefore.candidate_component_count;candidate_pixel_count=$smallChanged;residual_component_count=$smallAfter.candidate_component_count;residual_pixel_count=$smallAfter.candidate_pixel_count;stage_record_sha256=$smallStageHash}
+    $stages.Add($smallStage)
+    Append-ProgressEvent ([ordered]@{event='stage';index=$stages.Count;stage=$smallStage})
+    if($stages.Count % $ProgressCheckpointEvery -eq 0){Write-ProgressCheckpoint 'running' $stages $smallStage}
+    $autoCleanPasses=5
+    for($pass=1;$pass -le $autoCleanPasses;$pass++){Run-NativeStep $settings.AutoCleanUpSettings ('auto_'+$pass)}
+    $nativeRefillCycles=0
+    for($refill=1;$refill -le $MaxZeroCycles;$refill++){
+        $refillBefore=Get-ActualZeroCount $state.dataset
+        foreach($level in 0..7){$settings.ZeroSolutionRemovalSettings.Level=$level;Run-NativeStep $settings.ZeroSolutionRemovalSettings ('refill_zero_'+(8-$level))}
+        $nativeRefillCycles=$refill
+        if((Get-ActualZeroCount $state.dataset) -ge $refillBefore){break}
+    }
+    $finalRefillZero=Get-ActualZeroCount $state.dataset
+    if($finalRefillZero -ne 0){throw ('native_neighbor_refill_left_zero_solutions:'+$finalRefillZero)}
     Run-NativeStep $settings.KuwaharaFilterSettings 'kuwahara'
+    $smallFinal=Get-SmallComponentMask $state.dataset $smallComponentThresholdPixels
     if($AuditMode -eq 'Fast'){$state.snapshot=[NativeCleanupSnapshot]::Capture($state.dataset)}
     # Audit native intermediate quality differences rather than hiding them.
     # Persistence copies orientations into the original project dataset; its
@@ -164,7 +246,8 @@ try{
     $copied.Save((Join-Path $run 'expected.snapshot'))
     $changedTotal=$initial.ChangedPoints($copied,(Join-Path $run 'point-provenance.mask'))
     $project.SaveProjectAs($derived)
-    $workerReport=[ordered]@{status='native_saved_pending_independent_readback';persistence_policy=$PersistencePolicy;audit_mode=$AuditMode;progress_checkpoint_every=$ProgressCheckpointEvery;progress_log='stage-progress.jsonl';recipe='aztec-native-8to1-50-wild-auto5-quadrants3-v1';pseudo_symmetry='excluded_by_user';native_version=[Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $AztecRoot 'AZtecCrystal.exe')).FileVersion;core_sha256=(File-Sha256 (Join-Path $AztecRoot 'core.ebsd.dll'));geometry=$geometry;zero_cycles_run=$cycles;zero_cycle_limit=$MaxZeroCycles;stages=@($stages.ToArray());before_zero=$initialZero;after_zero=$state.dataset.ZeroSolutionCount;changed_points=$changedTotal;source_snapshot_sha256=$initialSnapshotHash;expected_snapshot_sha256=$copied.Hash($false);quality_before=$initialQualityHash;quality_after=$copied.Hash($true);derived=$derived;normalization=$normalization;provenance=[ordered]@{format='row-major one byte per point; bit0=any recorded field changed, bit1=original phase0 now indexed';donor_source='not_exposed_by_native_step';quality_fields_audited=@('BandContrast','BandSlope','NumberOfBands');errorcode_audit='native_C5_bytes_preserved_and_phase_dependent_decode_predicted';native_mutable_fields_audited=@('PhaseID','Orientation.X1..X4','Euler1','Euler2','Euler3','MAD');unavailable_fields=@('reliability_not_exposed_as_dataset_field')}}
+    $finalActualZero=Get-ActualZeroCount $state.dataset
+    $workerReport=[ordered]@{status='native_saved_pending_independent_readback';persistence_policy=$PersistencePolicy;audit_mode=$AuditMode;progress_checkpoint_every=$ProgressCheckpointEvery;progress_log='stage-progress.jsonl';recipe='aztec-native-8to1-50-wild4-x1-auto5-quadrants3-smalllt10-native-refill-v7';wild_spike_passes=$wildSpikePasses;wild_spike_maximum_pixels=4;auto_clean_passes=$autoCleanPasses;auto_clean_dataset_flow='previous_native_IDataset_result';small_component_threshold_pixels=10;small_component_connectivity='EightNeighbors';small_component_component_rule='same_phase_and_phase_gt_zero';small_component_count=$smallBefore.component_count;small_component_candidate_components=$smallBefore.candidate_component_count;small_component_nulled_components=$smallBefore.candidate_component_count;small_component_nulled_pixels=$smallChanged;small_component_residual_components_after_nullify=$smallAfter.candidate_component_count;small_component_residual_pixels_after_nullify=$smallAfter.candidate_pixel_count;small_component_residual_components=$smallFinal.candidate_component_count;small_component_residual_pixels=$smallFinal.candidate_pixel_count;native_refill_cycles=$nativeRefillCycles;native_refill_max_iterations=50;native_refill_residual_zero_solutions=$finalRefillZero;final_zero_solution_count=$finalActualZero;pseudo_symmetry='excluded_by_user';initial_dataset_identity=$initialDatasetIdentity;native_version=[Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $AztecRoot 'AZtecCrystal.exe')).FileVersion;core_sha256=(File-Sha256 (Join-Path $AztecRoot 'core.ebsd.dll'));geometry=$geometry;zero_cycles_run=$cycles;zero_cycle_limit=$MaxZeroCycles;stages=@($stages.ToArray());before_zero=$initialZero;after_zero=$finalActualZero;changed_points=$changedTotal;source_snapshot_sha256=$initialSnapshotHash;expected_snapshot_sha256=$copied.Hash($false);quality_before=$initialQualityHash;quality_after=$copied.Hash($true);derived=$derived;normalization=$normalization;provenance=[ordered]@{format='row-major one byte per point; bit0=any recorded field changed, bit1=original phase0 now indexed';donor_source='native_ZeroSolutionRemoval_neighbour_fill';quality_fields_audited=@('BandContrast','BandSlope','NumberOfBands');errorcode_audit='native_C5_bytes_preserved_and_phase_dependent_decode_predicted';native_mutable_fields_audited=@('PhaseID','Orientation.X1..X4','Euler1','Euler2','Euler3','MAD');unavailable_fields=@('reliability_not_exposed_as_dataset_field')}}
     Write-Json $reportPath $workerReport
     $lastStage=$stages[$stages.Count-1]
     if($AuditMode -eq 'Strict'){

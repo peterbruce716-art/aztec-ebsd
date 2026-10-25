@@ -1,21 +1,12 @@
-# Included binaries
+# Included algorithms and binaries
 
-All four helper binaries listed here are part of the repository and are also recorded in `assets/aztec-native-toolchain/toolchain-manifest.json` with their SHA-256 hashes and byte counts:
+The repository includes the algorithm adapters and the four helper binaries built from the checked-in C# sources:
 
-| File | Purpose |
-|---|---|
-| `assets/aztec-native-toolchain/03_tools/aztec_exporter/AZtecBmpExporter.exe` | Native map-export CLI |
-| `assets/aztec-native-toolchain/03_tools/aztec_exporter/AZtecBmpExporter.dll` | C# API wrapper for the exporter |
-| `assets/aztec-native-toolchain/03_tools/scripts/AztecNativeIpfConsole.exe` | Native IPF helper/verification host |
-| `assets/aztec-native-toolchain/03_tools/scripts/AztecNativeIpfKeyProbeNoDispose.exe` | Native IPF key probe helper |
+- `assets/aztec-native-toolchain/03_tools/aztec_exporter/AZtecBmpExporter.exe`
+- `assets/aztec-native-toolchain/03_tools/aztec_exporter/AZtecBmpExporter.dll`
+- `assets/aztec-native-toolchain/03_tools/scripts/AztecNativeIpfConsole.exe`
+- `assets/aztec-native-toolchain/03_tools/scripts/AztecNativeIpfKeyProbeNoDispose.exe`
 
-The binaries are built from source in this repository. Rebuild and re-run the checks after changing their source:
+PowerShell and C# sources are published beside the binaries. Rebuild with `scripts/build-toolchain.ps1`; the build verifies source files and refreshes relative-path manifests.
 
-```powershell
-.\scripts\build-toolchain.ps1
-.\scripts\verify-toolchain.ps1 -SkipEnvironment
-```
-
-The exporter EXE/DLL require the companion scripts and package layout. The native execution paths also require a separately installed and properly licensed AZtec Crystal environment, plus the .NET Framework and STA prerequisites. These self-built helpers do not include or replace Oxford Instruments AZtec Crystal, its application binaries, or vendor assemblies.
-
-Use `README.md` for installation and smoke-test instructions. No CPR/CRC/CTF data or reference images are distributed.
+These are project-built helpers. They are not Oxford Instruments binaries and do not replace a separately installed AZtec Crystal runtime or its license.

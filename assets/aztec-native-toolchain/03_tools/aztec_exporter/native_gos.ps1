@@ -1,4 +1,4 @@
-﻿param(
+param(
     [Parameter(Mandatory = $true)] [string] $CprPath,
     [string] $AztecRoot = 'C:\Program Files\Oxford Instruments NanoAnalysis\AZtec',
     [string] $OutputCsv,

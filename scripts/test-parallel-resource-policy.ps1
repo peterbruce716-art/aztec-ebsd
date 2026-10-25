@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'parallel-resource-policy.ps1')
 
 $cases = @(

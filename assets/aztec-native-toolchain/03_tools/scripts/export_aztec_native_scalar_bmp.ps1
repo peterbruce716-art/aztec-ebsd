@@ -1,4 +1,4 @@
-﻿param(
+param(
     [Parameter(Mandatory = $true)] [string] $CprPath,
     [Parameter(Mandatory = $true)] [string] $InputCsv,
     [Parameter(Mandatory = $true)] [ValidateSet('KAM', 'GOS')] [string] $Metric,

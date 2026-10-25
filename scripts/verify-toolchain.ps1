@@ -1,4 +1,4 @@
-﻿param([switch]$SkipEnvironment)
+param([switch]$SkipEnvironment)
 $ErrorActionPreference='Stop'
 if($PSVersionTable.PSEdition -ne 'Core'){throw 'requires_powershell_core'}
 $skillRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))

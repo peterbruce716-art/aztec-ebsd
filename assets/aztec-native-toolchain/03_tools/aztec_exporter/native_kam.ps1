@@ -1,4 +1,4 @@
-﻿param([string]$CprPath,[string]$OutputDirectory,[string]$AztecRoot)
+param([string]$CprPath,[string]$OutputDirectory,[string]$AztecRoot)
 $ErrorActionPreference='Stop'
 [IO.Directory]::CreateDirectory($OutputDirectory)|Out-Null
 $scripts=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../scripts'))

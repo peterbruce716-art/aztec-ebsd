@@ -1,19 +1,23 @@
-# AZtec 原生地图导出器
+# AZtec 原生整图 EXE / DLL
 
-本目录包含主导出器 EXE 和 DLL。请保留仓库目录结构、脚本和 helper 工具；这些二进制不是独立程序，也不包含 Oxford Instruments 运行时。
+当前入口是本目录的 `AZtecBmpExporter.exe` 和 `AZtecBmpExporter.dll`。它们依赖本目录脚本、工作区 `03_tools/scripts` 中的既有辅助程序、本机 PowerShell 7 和已授权的 AZtec Crystal 5.1 安装，不能只取两个二进制文件独立部署。DLL 使用子进程隔离调用同目录 EXE。
 
-使用 PowerShell 7 构建并验证工具链后再处理数据：
+在工作区根目录的 PowerShell 7 中构建并导出到一个尚不存在的目录：
 
 ```powershell
-$skillRoot = (Resolve-Path 'C:\path\to\aztec-ebsd').Path
-& (Join-Path $skillRoot 'scripts/build-toolchain.ps1')
-& (Join-Path $skillRoot 'scripts/verify-toolchain.ps1') -SkipEnvironment
-$exe = Join-Path $skillRoot 'assets/aztec-native-toolchain/03_tools/aztec_exporter/AZtecBmpExporter.exe'
-& $exe --input 'D:\data\map.cpr' --output 'D:\results\native-map' --types ALL --template native-v1
+& .\03_tools\aztec_exporter\build.ps1 -IncludeDll
+& .\03_tools\aztec_exporter\AZtecBmpExporter.exe --input D:\\data\\map.cpr --output D:\\results\\my_native_export --types ALL --template native-v1
 ```
 
-CPR 必须有匹配 CRC，输出目录必须是新的。原生执行需单独安装且获授权的 AZtec Crystal，以及工具链说明中列出的 .NET Framework/STA 前置条件。
+`native-v1` 是默认模式，通过原生 MapExport 绘制完整地图、图例、文字及晶界。`frozen-v1` 用于复现之前的兼容画布。自定义 JSON 模板支持 `kam.min/max` 与 `gos.min/max`，显示范围同时作用于原生地图和图例。
 
-DLL 暴露 `AZtecBmpExporter.AZtecBmpApi.Export`，并将原生 worker 隔离到子进程。核对返回的退出码、状态、各图状态与错误、manifest 路径和日志路径。
+```csharp
+var result = AZtecBmpExporter.AZtecBmpApi.Export(cprPath, newOutputDirectory, "ALL");
+// 检查 ExitCode、Status、ImageStatuses，并保留 ManifestPath / LogPath。
+```
 
-`native-v1` 调用已安装软件的原生 MapExport。`frozen-v1` 为兼容渲染器，不得称为原生 MapExport。两者都不代表与所有 AZtec 配置普遍等同。本包保留 `NativeFullMapFidelity=not_accepted`。详见[工具链说明](../../../../references/aztec-native-toolchain.md)。
+原生子进程必须使用 .NET Framework / STA；这是厂商 WPF 程序集的运行条件。主编排仍使用 PowerShell 7。不要在 PowerShell Core 内用 Add-Type 编译引用该 Framework DLL 的临时 C# 测试宿主；既有 `verify_aztec_native_dll.ps1` 应通过 Windows PowerShell Framework 子进程运行。
+
+每个成功原生输出包含文件 `sha256` 及 `pixel_sha256`。后者是从上到下、行内 BGR 三字节、无行填充的 Bgr24 像素 SHA-256，不包含 BMP 头、DPI、填充或 alpha。worker 会核对原生 BitmapForExport 与落盘后重新解码位图的 RGB；编排再核对最终文件副本哈希。不同运行的像素哈希不同仍需逐像素定位，不能仅凭哈希判断差异大小。
+
+完整历史参考等同性仍为 `NativeFullMapFidelity=not_accepted`。原生 IPF 的边界绘制已直接复现黑/灰交点的并行覆盖波动；当前保留厂商原生行为。原生调用、成功导出或保存像素一致均不等于已与所有参考图完全一致。生产阶段不读取参考 BMP，不修改输入 CPR/CRC，不启动 AZtec GUI 或网络服务。

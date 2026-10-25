@@ -7,32 +7,57 @@ $r=Get-Content -Raw -Encoding UTF8 -LiteralPath $report|ConvertFrom-Json
 $requiredStatus=if($PendingReport){'pending_native_cleanup_contract'}else{'complete_native_cleanup_readback_verified'}
 if($r.status -ne $requiredStatus){throw 'native_cleanup_incomplete'}
 if($r.worker.status -ne 'native_saved_pending_independent_readback' -or $r.readback.status -ne 'readback_verified'){throw 'worker_status_invalid'}
+if($r.worker.recipe -ne 'aztec-native-8to1-50-wild4-x1-auto5-quadrants3-smalllt10-native-refill-v7' -or $r.worker.wild_spike_passes -ne 1 -or $r.worker.wild_spike_maximum_pixels -ne 4 -or $r.worker.auto_clean_passes -ne 5 -or $r.worker.auto_clean_dataset_flow -ne 'previous_native_IDataset_result'){throw 'wild_spike_recipe_contract_failed'}
+if($r.worker.small_component_threshold_pixels -ne 10 -or $r.worker.small_component_connectivity -ne 'EightNeighbors' -or $r.worker.small_component_component_rule -ne 'same_phase_and_phase_gt_zero' -or $r.worker.small_component_nulled_components -lt 0 -or $r.worker.small_component_nulled_pixels -lt 0 -or $r.worker.small_component_residual_components -ne 0 -or $r.worker.small_component_residual_pixels -ne 0){throw 'small_component_cleanup_contract_failed'}
+if($r.worker.native_refill_cycles -lt 1 -or $r.worker.native_refill_cycles -gt 50 -or $r.worker.native_refill_max_iterations -ne 50 -or $r.worker.native_refill_residual_zero_solutions -ne 0 -or $r.worker.final_zero_solution_count -ne 0){throw 'native_refill_contract_failed'}
 foreach($hash in @($r.source_cpr_sha256,$r.source_crc_sha256,$r.worker.core_sha256,$r.worker.source_snapshot_sha256,$r.worker.expected_snapshot_sha256,$r.worker.quality_before,$r.worker.quality_after,$r.readback.snapshot_sha256,$r.readback.quality_sha256)){if($hash -notmatch '^[A-Fa-f0-9]{64}$'){throw 'required_sha256_invalid'}}
 $cycles=[int]$r.worker.zero_cycles_run
 if($cycles -lt 1 -or $r.worker.zero_cycle_limit -lt 1 -or $cycles -gt $r.worker.zero_cycle_limit -or $r.worker.zero_cycle_limit -gt 50){throw 'zero_cycle_limit_invalid'}
 $expected=@()
 foreach($cycle in 1..$cycles){$expected+=@('zero_8','zero_7','zero_6','zero_5','zero_4','zero_3','zero_2','zero_1')}
-$expected+=@('wild_spike','auto_1','auto_2','auto_3','auto_4','auto_5','kuwahara')
+$expected+=@('wild_spike')
+$expected+=@('small_component_lt10')
+for($pass=1;$pass -le $r.worker.auto_clean_passes;$pass++){$expected+=('auto_'+$pass)}
+for($refill=1;$refill -le $r.worker.native_refill_cycles;$refill++){$expected+=@('refill_zero_8','refill_zero_7','refill_zero_6','refill_zero_5','refill_zero_4','refill_zero_3','refill_zero_2','refill_zero_1')}
+$expected+=@('kuwahara')
 if(@($r.worker.stages).Count -ne $expected.Count){throw 'native_stage_count_mismatch'}
 $levels=@('EightNeighbors','SevenNeighbors','SixNeighbors','FiveNeighbors','FourNeighbors','ThreeNeighbors','TwoNeighbors','OneNeighbor')
 $previousZero=$r.worker.before_zero
+$previousDatasetIdentity=$r.worker.initial_dataset_identity
 for($i=0;$i -lt $expected.Count;$i++){
  $s=$r.worker.stages[$i]
- $kind=if($i -lt 8*$cycles){'ZeroSolutionRemoval'}elseif($s.name -eq 'wild_spike'){'WildSpikeRemoval'}elseif($s.name -like 'auto_*'){'AutoCleanUp'}else{'KuwaharaFilter'}
- if($s.name -ne $expected[$i] -or $s.status -ne 'executed' -or $s.native_type -ne ('Core.Ebsd.DataCleanUp.'+$kind+'Step') -or $s.settings.native_type -ne ('Core.Ebsd.DataCleanUp.'+$kind+'Settings')){throw "stage_contract_failed:$i"}
+ $kind=if($i -lt 8*$cycles){'ZeroSolutionRemoval'}elseif($s.name -eq 'wild_spike'){'WildSpikeRemoval'}elseif($s.name -eq 'small_component_lt10'){'SmallComponent'}elseif($s.name -like 'auto_*'){'AutoCleanUp'}elseif($s.name -like 'refill_zero_*'){'ZeroSolutionRemoval'}else{'KuwaharaFilter'}
+ $nativeType=if($kind -eq 'SmallComponent'){'Core.Ebsd.Infrastructure.RawData.Nullify'}else{'Core.Ebsd.DataCleanUp.'+$kind+'Step'}
+ $settingsType=if($kind -eq 'SmallComponent'){$null}else{'Core.Ebsd.DataCleanUp.'+$kind+'Settings'}
+ if($s.name -ne $expected[$i] -or $s.status -ne 'executed' -or $s.native_type -ne $nativeType -or ($null -ne $settingsType -and $s.settings.native_type -ne $settingsType)){throw "stage_contract_failed:$i"}
  if($null -eq $s.before_zero -or $null -eq $s.after_zero -or $s.before_zero -lt 0 -or $s.after_zero -lt 0 -or $s.before_zero -ne $previousZero){throw "stage_chain_failed:$i"}
- $stageHash = if($r.worker.audit_mode -eq 'Strict'){$s.snapshot_sha256}else{$s.stage_record_sha256}
+ if($s.input_is_native_IDataset -ne $true -or $s.output_is_native_IDataset -ne $true -or $null -eq $s.input_dataset_identity -or $null -eq $s.output_dataset_identity -or $s.input_dataset_identity -ne $previousDatasetIdentity){throw "native_IDataset_chain_failed:$i"}
+ $stageHash = if($kind -in @('SmallComponent','NeighborSmoothing') -or $r.worker.audit_mode -eq 'Fast'){$s.stage_record_sha256}else{$s.snapshot_sha256}
  if($stageHash -notmatch '^[A-Fa-f0-9]{64}$'){throw "stage_sha256_invalid:$i"}
  $previousZero=$s.after_zero
+ $previousDatasetIdentity=$s.output_dataset_identity
  if($i -lt 8*$cycles){
   if($s.settings.Iterate -ne $true -or $s.settings.MaxIterations -ne 50 -or $s.settings.agreeing_neighbours -ne (8-($i%8)) -or $s.settings.Level -ne $levels[$i%8]){throw 'zero_stage_settings_failed'}
   if($s.after_zero -gt $s.before_zero){throw 'zero_stage_increased_zero_count'}
+ }
+ if($kind -eq 'SmallComponent'){
+  if($s.settings.threshold_pixels -ne 10 -or $s.settings.connectivity -ne 'EightNeighbors' -or $s.settings.component_rule -ne 'same_phase_and_phase_gt_zero' -or $s.settings.action -ne 'native_RawData.Nullify_BitArray'){throw 'small_component_stage_settings_failed'}
+  if($s.candidate_component_count -ne $r.worker.small_component_nulled_components -or $s.candidate_pixel_count -ne $r.worker.small_component_nulled_pixels -or $s.residual_component_count -ne 0 -or $s.residual_pixel_count -ne 0){throw 'small_component_stage_counts_failed'}
+  if($s.after_zero -lt $s.before_zero){throw 'small_component_zero_count_decreased'}
+ }
+ if($s.name -like 'refill_zero_*'){
+  if($s.settings.Iterate -ne $true -or $s.settings.MaxIterations -ne 50 -or $s.settings.agreeing_neighbours -ne [int]$s.name.Substring(12)){throw 'native_refill_stage_settings_failed'}
+  if($s.after_zero -gt $s.before_zero){throw 'native_refill_increased_zero_count'}
  }
  if($kind -eq 'AutoCleanUp'){
   $sequence=@($s.settings.sequence)
   if($sequence.Count -eq 0){throw 'native_autoclean_sequence_empty'}
   foreach($entry in $sequence){if($entry.native_type -notin @('Core.Ebsd.DataCleanUp.WildSpikeRemovalSettings','Core.Ebsd.DataCleanUp.ZeroSolutionRemovalSettings')){throw 'unapproved_autoclean_sequence_step'}}
+  $wildEntries=@($sequence|Where-Object {$_.native_type -eq 'Core.Ebsd.DataCleanUp.WildSpikeRemovalSettings'})
+  if($wildEntries.Count -eq 0){throw 'native_autoclean_wild_spike_step_missing'}
+  foreach($entry in $wildEntries){if($entry.MaximumPixelSize -ne 'FourPixels'){throw 'autoclean_wild_spike_pixel_limit_invalid'}}
  }
+ if($s.name -eq 'wild_spike' -and $s.settings.MaximumPixelSize -ne 'FourPixels'){throw 'wild_spike_pixel_limit_invalid'}
 }
 for($cycle=0;$cycle -lt $cycles;$cycle++){
  $first=$r.worker.stages[8*$cycle];$lastZero=$r.worker.stages[8*$cycle+7]

@@ -1,4 +1,4 @@
-﻿param(
+param(
     [Parameter(Mandatory=$true)][string]$CprPath,
     [Parameter(Mandatory=$true)][string]$OutputDirectory,
     [ValidateRange(30,3600)][int]$StageTimeoutSeconds=3600,
@@ -6,7 +6,7 @@
     [ValidateSet('NativeSave','FilteredQuaternion')][string]$PersistencePolicy='NativeSave',
     [ValidateSet('Strict','Fast')][string]$AuditMode='Fast',
     [ValidateRange(1,50)][int]$ProgressCheckpointEvery=8,
-    [string]$SkillRoot='',
+    [string]$SkillRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..')),
     [string]$AztecRoot='C:\Program Files\Oxford Instruments NanoAnalysis\AZtec'
 )
 $PersistencePolicy=if($PersistencePolicy -eq 'NativeSave'){'NativeSave'}else{'FilteredQuaternion'}
@@ -39,7 +39,6 @@ function ErrorCode-BytesHash($Path){
 $sourceErrorHash=ErrorCode-BytesHash $crc
 $output=$ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputDirectory)
 if(Test-Path -LiteralPath $output){throw 'output_directory_must_not_exist'}
-if([string]::IsNullOrWhiteSpace($SkillRoot)){$SkillRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))}
 $cleanupRoot=Join-Path $SkillRoot 'scripts/native-cleanup'
 $localScriptRoot=Split-Path -Parent $PSCommandPath
 $worker=Join-Path $localScriptRoot 'native_cleanup_worker_optimized.ps1'

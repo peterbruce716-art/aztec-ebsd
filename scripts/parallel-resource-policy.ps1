@@ -1,4 +1,4 @@
-﻿function Get-AztecBatchResourceSnapshot {
+function Get-AztecBatchResourceSnapshot {
     $os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop
     $processors = @(Get-CimInstance -ClassName Win32_Processor -ErrorAction Stop)
     if ($processors.Count -eq 0 -or [int64]$os.TotalVisibleMemorySize -le 0) { throw 'resource_snapshot_incomplete' }

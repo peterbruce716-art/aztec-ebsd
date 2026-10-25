@@ -1,4 +1,4 @@
-﻿param(
+param(
     [Parameter(Mandatory=$true)][string]$Workspace,
     [Parameter(Mandatory=$true)][string]$OriginalStatusPath,
     [Parameter(Mandatory=$true)][string]$RetryStatusPath,
@@ -37,12 +37,9 @@ if (-not $DryRun) {
     }
 }
 $workspacePath = (Resolve-Path -LiteralPath $Workspace).Path
-$OriginalStatusPath = [IO.Path]::GetFullPath($OriginalStatusPath)
-$RetryStatusPath = [IO.Path]::GetFullPath($RetryStatusPath)
-if (-not [IO.File]::Exists($OriginalStatusPath)) { throw 'original_status_log_missing' }
+$cleanupRunner = Join-Path $workspacePath '03_tools/scripts/run_aztec_native_cleanup_sta.ps1'
+$cleanupVerifier = Join-Path $workspacePath '03_tools/scripts/verify_aztec_native_cleanup_run_optimized.ps1'
 $skillRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$cleanupRunner = Join-Path $skillRoot 'scripts/native-cleanup/run_aztec_native_cleanup_sta.ps1'
-$cleanupVerifier = Join-Path $skillRoot 'scripts/native-cleanup/verify_aztec_native_cleanup_run_optimized.ps1'
 $exporter = Join-Path $skillRoot 'assets/aztec-native-toolchain/03_tools/aztec_exporter/AZtecBmpExporter.exe'
 foreach ($required in @($cleanupRunner, $cleanupVerifier, $exporter)) {
     if (-not [IO.File]::Exists($required)) { throw "required_tool_missing:$required" }
