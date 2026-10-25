@@ -24,8 +24,8 @@
     },
     {
       "relative_path": "references/aztec-native-toolchain.md",
-      "sha256": "426E6AE7B0C71C72A7E5E6B845168EC2ACB4C16F7C8829DE030303268F066548",
-      "bytes": 2594
+      "sha256": "17E2AEA35BD1162303A3E29386ADC936957B19E7D77DF80DBA58B9D6DAABF1B5",
+      "bytes": 9348
     },
     {
       "relative_path": "references/cleanup-metrics-and-mtex.md",
@@ -174,12 +174,12 @@
     },
     {
       "relative_path": "source-manifest.json",
-      "sha256": "239379636E57832CD5D0F6A8D2F2EFF2DAEA1A86AE6EA25FC1F0B4A4B4DB4372",
+      "sha256": "EAA0584EA96F4608719E2FB72AA33DC987CA3C5B5CB95DD42AAC94B28326B864",
       "bytes": 10698
     },
     {
       "relative_path": "assets/aztec-native-toolchain/toolchain-manifest.json",
-      "sha256": "CBAB239E7DEEA38B62ACA52E4BF525D34929F58586097A03B6077B0366340DBF",
+      "sha256": "9387DEC34E041C40A8B52A4B03DF7A84C61DC13CE2F392C3699AA03F1E7734AB",
       "bytes": 4988
     }
   ]

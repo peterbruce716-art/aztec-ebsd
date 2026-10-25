@@ -21,8 +21,8 @@
     },
     {
       "relative_path": "references/aztec-native-toolchain.md",
-      "sha256": "426E6AE7B0C71C72A7E5E6B845168EC2ACB4C16F7C8829DE030303268F066548",
-      "bytes": 2594
+      "sha256": "17E2AEA35BD1162303A3E29386ADC936957B19E7D77DF80DBA58B9D6DAABF1B5",
+      "bytes": 9348
     },
     {
       "relative_path": "references/cleanup-metrics-and-mtex.md",
