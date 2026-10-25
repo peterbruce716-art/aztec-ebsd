@@ -166,8 +166,8 @@
     },
     {
       "relative_path": "references/aztec-ipf-standard.md",
-      "sha256": "52420C0DFA88CA36F19C142C3398E1DA259295E4A7071CC89B7C6096AB98EBDA",
-      "bytes": 9582
+      "sha256": "2D2E61572984E7D2AA033BA052C4781C71730F956C6C53F7B830689A94C11C18",
+      "bytes": 9130
     },
     {
       "relative_path": "references/aztec-native-cleanup.md",

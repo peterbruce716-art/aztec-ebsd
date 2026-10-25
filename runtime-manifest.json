@@ -49,8 +49,8 @@
     },
     {
       "relative_path": "references/aztec-ipf-standard.md",
-      "sha256": "52420C0DFA88CA36F19C142C3398E1DA259295E4A7071CC89B7C6096AB98EBDA",
-      "bytes": 9582
+      "sha256": "2D2E61572984E7D2AA033BA052C4781C71730F956C6C53F7B830689A94C11C18",
+      "bytes": 9130
     },
     {
       "relative_path": "references/aztec-native-cleanup.md",
@@ -164,12 +164,12 @@
     },
     {
       "relative_path": "source-manifest.json",
-      "sha256": "2ECE5C131AD1D462E5E91C62950204633D82AA5CEA551DD9FC9831A1304B5392",
+      "sha256": "B7F01E7C649F51CC6144BDC6B84DA4A33FFBDB2ED408D15797A8C21CE34FA3B4",
       "bytes": 11299
     },
     {
       "relative_path": "assets/aztec-native-toolchain/toolchain-manifest.json",
-      "sha256": "42CD61B9EED5B06B70BB8F267D9E658B82527094A568248957298E70D7BD3155",
+      "sha256": "1FD5A431B9D81B8DCD2BC68FCB2DC54F2A65119B615C4B866B59924C70D77E35",
       "bytes": 5579
     }
   ]

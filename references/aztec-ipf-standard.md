@@ -46,10 +46,7 @@
 - `03_tools/scripts/run_aztec_ipf_match.ps1`：保留原 Map_006 复现入口。
 - `03_tools/scripts/AztecMapExporter.cs` 和 `build_aztec_map.ps1`：本机公开原生接口提取与构建。
 - `03_tools/scripts/mtex_export_aztec_exact.m`：已参数化网格、横纵步长、BC 范围、图层索引和输出命名；独立执行 MTEX 几何、BC 混合、边界绘制与读回验收。
-- `05_evaluation/aztec_ipf_match_20260913/README.md` 和 `final/verification.json`：原始 Map_006 实测结果和适用范围。
-- `05_evaluation/mtex_standard_smoke_20260913/independent_smoke_audit.json`：独立 CTF、不同网格/步长/BC 的实测记录。
-- `03_tools/scripts/run_mtex_denoise_map006.ps1`：Map_006 专用降噪、补点、派生 CPR/CRC/CTF 和验证入口。结果说明与验收位于 `05_evaluation/mtex_denoise_Map_006_20260913/README.md`、`delivery_audit.json`；报告该次结果前读取实际审计且确认 `passed=true`，不能用显示基准的通过替代处理数据验收。
-
+- 历史工作区中的样品审计、固定数据集脚本和旧渲染报告不随本仓库发布；新数据必须重新建立输入、参数和验收记录。\r\n
 2026-09-13 已验证的是原始 Map_006：229×171、0.25 µm、39,159 点（35,844 已解析，3,315 未解析）、BC 21–249；MATLAB R2025a、MTEX 5.11.2、原生 core.ebsd 5.1.0.0。在 4 倍、916×684、1 输出像素边界线宽下，78,318 个邻接分类一致，PNG/TIFF 626,544 像素差异为零。该原始结果没有降噪或补点。
 
 该次 BC 混合校准为 `BC8 = round_half_even(255*(BC-21)/228)`；已解析点 `floor((IPF8+BC8)/2)`，未解析点 `BC8`。该公式的限值及 50% 混合与当次配置相关，不能自动推断所有数据都相同。
