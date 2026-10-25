@@ -6,7 +6,7 @@
 
 ```powershell
 & .\03_tools\aztec_exporter\build.ps1 -IncludeDll
-& .\03_tools\aztec_exporter\AZtecBmpExporter.exe --input D:\\data\\map.cpr --output D:\\results\\my_native_export --types ALL --template native-v1
+& .\AZtecBmpExporter.exe --input 'C:\path\sample.cpr' --output 'C:\path\new-native-export' --types ALL --template native-v1
 ```
 
 `native-v1` 是默认模式，通过原生 MapExport 绘制完整地图、图例、文字及晶界。`frozen-v1` 用于复现之前的兼容画布。自定义 JSON 模板支持 `kam.min/max` 与 `gos.min/max`，显示范围同时作用于原生地图和图例。

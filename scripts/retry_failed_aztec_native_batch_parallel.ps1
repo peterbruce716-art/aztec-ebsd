@@ -1,7 +1,7 @@
 param(
-    [Parameter(Mandatory=$true)][string]$Workspace,
-    [Parameter(Mandatory=$true)][string]$OriginalStatusPath,
-    [Parameter(Mandatory=$true)][string]$RetryStatusPath,
+    [string]$Workspace = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')),
+    [string]$OriginalStatusPath = '',
+    [string]$RetryStatusPath = '',
     [int]$Limit = 0,
     [ValidateRange(30,3600)][int]$StageTimeoutSeconds = 3600,
     [ValidateSet('Strict','Fast')][string]$AuditMode = 'Fast',
@@ -31,15 +31,19 @@ if (-not $DryRun) {
     if (-not [IO.File]::Exists($frameworkHost)) { throw 'framework_sta_host_missing' }
     $probe = "if (`$PSVersionTable.PSEdition -ne 'Desktop') { exit 21 }; if ([Threading.Thread]::CurrentThread.GetApartmentState() -ne [Threading.ApartmentState]::STA) { exit 22 }; exit 0"
     $encodedProbe = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($probe))
-    $probeProcess = Start-Process -FilePath $frameworkHost -ArgumentList @('-NoProfile','-STA','-EncodedCommand',$encodedProbe) -WindowStyle Hidden -PassThru -Wait
-    if ($probeProcess.ExitCode -ne 0) {
+    $probeInfo=[Diagnostics.ProcessStartInfo]::new();$probeInfo.FileName=$frameworkHost;$probeInfo.UseShellExecute=$false;$probeInfo.CreateNoWindow=$true
+    foreach($argument in @('-NoProfile','-STA','-EncodedCommand',$encodedProbe)){[void]$probeInfo.ArgumentList.Add($argument)}
+    $probeProcess=[Diagnostics.Process]::new();$probeProcess.StartInfo=$probeInfo
+    if(-not $probeProcess.Start()){throw 'framework_sta_probe_start_failed'}
+    $probeProcess.WaitForExit();$probeExit=$probeProcess.ExitCode;$probeProcess.Dispose()
+    if ($probeExit -ne 0) {
         throw ('framework_sta_preflight_failed:exit={0};expected=Desktop|STA' -f $probeProcess.ExitCode)
     }
 }
 $workspacePath = (Resolve-Path -LiteralPath $Workspace).Path
-$cleanupRunner = Join-Path $workspacePath '03_tools/scripts/run_aztec_native_cleanup_sta.ps1'
-$cleanupVerifier = Join-Path $workspacePath '03_tools/scripts/verify_aztec_native_cleanup_run_optimized.ps1'
-$skillRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$cleanupRunner = Join-Path $workspacePath 'scripts/native-cleanup/run_aztec_native_cleanup_sta.ps1'
+$cleanupVerifier = Join-Path $workspacePath 'scripts/native-cleanup/verify_aztec_native_cleanup_run_optimized.ps1'
+$skillRoot = $workspacePath
 $exporter = Join-Path $skillRoot 'assets/aztec-native-toolchain/03_tools/aztec_exporter/AZtecBmpExporter.exe'
 foreach ($required in @($cleanupRunner, $cleanupVerifier, $exporter)) {
     if (-not [IO.File]::Exists($required)) { throw "required_tool_missing:$required" }
@@ -357,6 +361,8 @@ if (-not $DryRun) {
 }
 
 try {
+if (-not $OriginalStatusPath) { throw 'original_status_path_required' }
+if (-not $RetryStatusPath) { throw 'retry_status_path_required' }
 $records = @(Read-JsonLines $OriginalStatusPath | Where-Object { @('failed_or_conflicted','skipped_missing_crc') -contains [string]$_.status } | Sort-Object index)
 $records = @($records | Where-Object { -not (Test-RawDataCorrupted ([string]$_.source)) })
 $alreadyCompleted = @{}
@@ -454,14 +460,22 @@ while ($next -lt $pending.Count -or $active.Count -gt 0) {
             ' -CorruptedManifestPath ' + (& $quote $CorruptedManifestPath)
         if ($IncludeRawDataCorrupted) { $command += ' -IncludeRawDataCorrupted' }
         $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
-        $proc = Start-Process -FilePath 'C:\Program Files\PowerShell\7\pwsh.exe' -ArgumentList @('-NoProfile','-EncodedCommand',$encoded) -WindowStyle Hidden -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru
-        $active[$proc.Id] = [pscustomobject]@{ Process = $proc; Record = $record; ResultPath = $resultPath; StdoutPath = $stdoutPath; StderrPath = $stderrPath; Index = $next }
+        $procInfo=[Diagnostics.ProcessStartInfo]::new();$procInfo.FileName='C:\Program Files\PowerShell\7\pwsh.exe';$procInfo.UseShellExecute=$false;$procInfo.CreateNoWindow=$true;$procInfo.RedirectStandardOutput=$true;$procInfo.RedirectStandardError=$true
+        foreach($argument in @('-NoProfile','-EncodedCommand',$encoded)){[void]$procInfo.ArgumentList.Add($argument)}
+        $proc=[Diagnostics.Process]::new();$proc.StartInfo=$procInfo
+        if(-not $proc.Start()){throw 'worker_process_start_failed'}
+        $stdoutTask=$proc.StandardOutput.ReadToEndAsync();$stderrTask=$proc.StandardError.ReadToEndAsync()
+        $active[$proc.Id] = [pscustomobject]@{ Process = $proc; StdoutTask=$stdoutTask; StderrTask=$stderrTask; Record = $record; ResultPath = $resultPath; StdoutPath = $stdoutPath; StderrPath = $stderrPath; Index = $next }
         Write-Output ("launched [{0}/{1}] {2}" -f $next,$pending.Count,$record.source)
     }
     Start-Sleep -Seconds 2
     foreach ($processId in @($active.Keys)) {
         $entry = $active[$processId]
         if (-not (Get-Process -Id $processId -ErrorAction SilentlyContinue)) {
+            try {
+                if ($entry.StdoutTask) { [IO.File]::WriteAllText($entry.StdoutPath,$entry.StdoutTask.GetAwaiter().GetResult(),[Text.UTF8Encoding]::new($false)) }
+                if ($entry.StderrTask) { [IO.File]::WriteAllText($entry.StderrPath,$entry.StderrTask.GetAwaiter().GetResult(),[Text.UTF8Encoding]::new($false)) }
+            } catch { }
             $row = $null
             if ([IO.File]::Exists($entry.ResultPath)) { $row = Get-Content -Raw -Encoding UTF8 -LiteralPath $entry.ResultPath | ConvertFrom-Json }
             if ($null -eq $row) {

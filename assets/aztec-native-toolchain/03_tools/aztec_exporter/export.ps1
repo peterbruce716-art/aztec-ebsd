@@ -32,20 +32,13 @@ function Invoke-Stage([string]$Name,[string]$Executable,[string[]]$Arguments){
        $Arguments[1] -eq '-STA' -and $Arguments[2] -eq '-EncodedCommand')
     $info=[Diagnostics.ProcessStartInfo]::new();$info.FileName=$Executable;$info.UseShellExecute=$false;$info.CreateNoWindow=$true;$info.RedirectStandardOutput=$true;$info.RedirectStandardError=$true
     $info.StandardOutputEncoding=[Text.UTF8Encoding]::new($false);$info.StandardErrorEncoding=[Text.UTF8Encoding]::new($false)
-    if(-not $frameworkSta){
-        foreach($a in $Arguments){$info.ArgumentList.Add($a)}
-    }
-    $entry=[ordered]@{stage=$Name;executable=$Executable;arguments=$Arguments;timeout_seconds=$request.timeout_seconds;started_utc=[DateTime]::UtcNow.ToString('o');launcher=$(if($frameworkSta){'Start-Process'}else{'ProcessStartInfo'})}
+    foreach($a in $Arguments){$info.ArgumentList.Add($a)}
+    $entry=[ordered]@{stage=$Name;executable=$Executable;arguments=$Arguments;timeout_seconds=$request.timeout_seconds;started_utc=[DateTime]::UtcNow.ToString('o');launcher='ProcessStartInfo';framework_sta=$frameworkSta}
     $p=$null;$ot=$null;$et=$null;Log ('start '+$Name)
     try{
-        if($frameworkSta){
-            $stdoutPath=$prefix+'.stdout.log';$stderrPath=$prefix+'.stderr.log'
-            $p=Start-Process -FilePath $Executable -ArgumentList @($Arguments) -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
-        }else{
-            $p=[Diagnostics.Process]::new();$p.StartInfo=$info
-            if(-not $p.Start()){throw 'process_start_failed'}
-            $ot=$p.StandardOutput.ReadToEndAsync();$et=$p.StandardError.ReadToEndAsync()
-        }
+        $p=[Diagnostics.Process]::new();$p.StartInfo=$info
+        if(-not $p.Start()){throw 'process_start_failed'}
+        $ot=$p.StandardOutput.ReadToEndAsync();$et=$p.StandardError.ReadToEndAsync()
         if(-not $p.WaitForExit([int]$request.timeout_seconds*1000)){$p.Kill($true);$p.WaitForExit();$entry.timed_out=$true;throw ('stage_timeout:'+ $Name)}
         $entry.exit_code=$p.ExitCode
         if($p.ExitCode -ne 0){throw ('stage_failed:'+ $Name+';exit='+$p.ExitCode+';see='+$prefix+'.stderr.log')}

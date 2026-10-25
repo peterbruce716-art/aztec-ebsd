@@ -1,7 +1,13 @@
-# 验证范围
+# Native validation evidence boundary
 
-公开包提供源码完整性检查、helper 二进制重建、环境预检以及合成或 mock 数据 smoke test。这些检查可确认包内文件完整，并验证软件路径能运行；它们不证明任意 EBSD 数据集上的科学有效性或渲染等同性。
+The public package contains reusable validators and mock smoke tests, but no sample CPR/CRC/CTF files, reference images, private reports, or historical workspace logs.
 
-每次原生数据处理都应针对确切的 CPR/CRC、AZtec Crystal 版本、输出配置、输入保留情况、生成文件及独立读回进行验证。比较图像时，应确保数据和显示配置相同、使用原始尺寸，并报告精确差异。
+Before making a claim for a new dataset, rerun the relevant checks against the current input and configuration:
 
-本包保留 `NativeFullMapFidelity=not_accepted`。不能根据进程成功、运行间文件哈希相同、单个输入或合成 smoke test 推断完整地图等同性。仓库不发布样品数据或私有验证报告。
+- source CPR/CRC hashes are unchanged;
+- cleanup report, independent readback, and final zero-solution count meet the v7 gate;
+- native report, saved-pixel snapshot, output dimensions, and file hashes are retained;
+- RGB comparison parameters and results identify the current candidate and reference files;
+- `NativeFullMapFidelity=not_accepted` remains the package-wide limit unless the specific scope has complete evidence.
+
+The included retry and parallel-policy tests exercise orchestration contracts only. They do not validate vendor rendering or scientific conclusions.

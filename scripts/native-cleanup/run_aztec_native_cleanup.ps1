@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory=$true)][string]$CprPath,
     [Parameter(Mandatory=$true)][string]$OutputDirectory,
     [ValidateRange(30,3600)][int]$StageTimeoutSeconds=3600,
@@ -51,8 +51,28 @@ $version=[Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $AztecRoot 'AZ
 if($version -ne '5.1.7829.1'){throw ('unvalidated_aztec_version:'+$version)}
 $probe="if (`$PSVersionTable.PSEdition -ne 'Desktop') { exit 21 }; if ([Threading.Thread]::CurrentThread.GetApartmentState() -ne [Threading.ApartmentState]::STA) { exit 22 }; exit 0"
 $encodedProbe=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($probe))
-$probeProcess=Start-Process -FilePath $framework -ArgumentList @('-NoProfile','-STA','-EncodedCommand',$encodedProbe) -WindowStyle Hidden -PassThru -Wait
-if($probeProcess.ExitCode -ne 0){throw ('framework_sta_preflight_failed:exit=' + $probeProcess.ExitCode + ';expected=Desktop|STA')}
+function Invoke-FrameworkProcess([string[]]$Arguments,[string]$StdoutPath='', [string]$StderrPath=''){
+    $info=[Diagnostics.ProcessStartInfo]::new()
+    $info.FileName=$framework
+    $info.UseShellExecute=$false
+    $info.CreateNoWindow=$true
+    $redirectOut=-not [string]::IsNullOrWhiteSpace($StdoutPath)
+    $redirectErr=-not [string]::IsNullOrWhiteSpace($StderrPath)
+    $info.RedirectStandardOutput=$redirectOut
+    $info.RedirectStandardError=$redirectErr
+    if($redirectOut){$info.StandardOutputEncoding=[Text.UTF8Encoding]::new($false)}
+    if($redirectErr){$info.StandardErrorEncoding=[Text.UTF8Encoding]::new($false)}
+    foreach($argument in $Arguments){[void]$info.ArgumentList.Add([string]$argument)}
+    $process=[Diagnostics.Process]::new()
+    $process.StartInfo=$info
+    if(-not $process.Start()){ $process.Dispose(); throw 'framework_process_start_failed' }
+    $stdoutTask=if($redirectOut){$process.StandardOutput.ReadToEndAsync()}else{$null}
+    $stderrTask=if($redirectErr){$process.StandardError.ReadToEndAsync()}else{$null}
+    [pscustomobject]@{Process=$process;StdoutTask=$stdoutTask;StderrTask=$stderrTask;StdoutPath=$StdoutPath;StderrPath=$StderrPath}
+}
+$probeHandle=Invoke-FrameworkProcess @('-NoProfile','-STA','-EncodedCommand',$encodedProbe)
+try{$probeHandle.Process.WaitForExit();$probeExit=$probeHandle.Process.ExitCode}finally{$probeHandle.Process.Dispose()}
+if($probeExit -ne 0){throw ('framework_sta_preflight_failed:exit=' + $probeExit + ';expected=Desktop|STA')}
 $sourceBefore=(Get-FileHash -Algorithm SHA256 -LiteralPath $source).Hash
 $crcBefore=(Get-FileHash -Algorithm SHA256 -LiteralPath $crc).Hash
 [void][IO.Directory]::CreateDirectory($output)
@@ -80,9 +100,12 @@ function Invoke-Worker([string]$mode,[string]$inputCpr){
     $arguments=@('-NoProfile','-STA','-ExecutionPolicy','Bypass','-EncodedCommand',$encoded)
     $process=$null
     try{
-        $process=Start-Process -FilePath $framework -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+        $launched=Invoke-FrameworkProcess $arguments $stdoutPath $stderrPath
+        $process=$launched.Process
         $finished=$process.WaitForExit($StageTimeoutSeconds*1000)
         if(-not $finished){$process.Kill($true);if(-not $process.WaitForExit(10000)){throw 'worker_termination_unconfirmed'}}
+        if($launched.StdoutTask){[IO.File]::WriteAllText($stdoutPath,$launched.StdoutTask.GetAwaiter().GetResult(),[Text.UTF8Encoding]::new($false))}
+        if($launched.StderrTask){[IO.File]::WriteAllText($stderrPath,$launched.StderrTask.GetAwaiter().GetResult(),[Text.UTF8Encoding]::new($false))}
         if(-not $finished){throw ('worker_timeout:'+$mode)}
         if($process.ExitCode -ne 0){
             $diagnostic=[ordered]@{

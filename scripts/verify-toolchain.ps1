@@ -1,4 +1,4 @@
-param([switch]$SkipEnvironment)
+﻿param([switch]$SkipEnvironment)
 $ErrorActionPreference='Stop'
 if($PSVersionTable.PSEdition -ne 'Core'){throw 'requires_powershell_core'}
 $skillRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -29,6 +29,23 @@ function VerifyManifest([string]$Root,[string]$ManifestPath,[string[]]$Required,
     }
     [pscustomobject]@{manifest=$value;files_verified=$seen.Count}
 }
+function Invoke-ChildExitCode([string]$FilePath,[string[]]$ArgumentList,[int]$TimeoutMilliseconds=30000){
+    $info=[Diagnostics.ProcessStartInfo]::new()
+    $info.FileName=$FilePath
+    $info.UseShellExecute=$false
+    $info.CreateNoWindow=$true
+    foreach($argument in $ArgumentList){[void]$info.ArgumentList.Add([string]$argument)}
+    $process=[Diagnostics.Process]::new()
+    try{
+        $process.StartInfo=$info
+        if(-not $process.Start()){throw ('process_start_failed:'+$FilePath)}
+        if(-not $process.WaitForExit($TimeoutMilliseconds)){
+            try{$process.Kill($true)}catch{}
+            throw ('process_timeout:'+$FilePath)
+        }
+        return [int]$process.ExitCode
+    }finally{$process.Dispose()}
+}
 # Required paths prevent a self-consistent but incomplete manifest from passing.
 # Additional listed files remain supported; this is an integrity check, not a signature.
 $bundleRequired=@(
@@ -56,9 +73,6 @@ $bundleRequired=@(
     '03_tools/scripts/test_aztec_native_retry.ps1',
     '03_tools/scripts/probe_aztec_boundary_determinism.ps1',
     '03_tools/scripts/AztecBoundaryDeterminismProbe.cs',
-    'aztec_bmp_compare/p46_ipf_overlay/IpfOverlayRenderer.cs',
-    'aztec_bmp_compare/p46_ipf_overlay/export_native_bc.ps1',
-    'aztec_bmp_compare/p46_ipf_overlay/NativeBcAudit.cs',
     'aztec_bmp_compare/p47_baseline/P47BaselineMetrics.cs'
 )
 $runtimeRequired=@(
@@ -97,8 +111,8 @@ if(-not $SkipEnvironment){
     if($environment.architecture -ne 'X64'){throw 'requires_x64_host'}
     $staProbe="if (`$PSVersionTable.PSEdition -ne 'Desktop') { exit 21 }; if ([Threading.Thread]::CurrentThread.GetApartmentState() -ne [Threading.ApartmentState]::STA) { exit 22 }; exit 0"
     $staProbeEncoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($staProbe))
-    $staProbeProcess=Start-Process -FilePath $framework -ArgumentList @('-NoProfile','-STA','-EncodedCommand',$staProbeEncoded) -WindowStyle Hidden -PassThru -Wait
-    if($staProbeProcess.ExitCode -ne 0){throw ('framework_sta_preflight_failed:exit=' + $staProbeProcess.ExitCode + ';expected=Desktop|STA')}
+    $staProbeExit=Invoke-ChildExitCode $framework @('-NoProfile','-STA','-EncodedCommand',$staProbeEncoded)
+    if($staProbeExit -ne 0){throw ('framework_sta_preflight_failed:exit=' + $staProbeExit + ';expected=Desktop|STA')}
     $environment.framework_sta_worker_passed=$true
     $exe=Join-Path $bundleRoot '03_tools/aztec_exporter/AZtecBmpExporter.exe'
     $help=@(& $exe --help)
