@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$InputPath,[Parameter(Mandatory=$true)][string]$OutputDirectory)
+﻿param([Parameter(Mandatory=$true)][string]$InputPath,[Parameter(Mandatory=$true)][string]$OutputDirectory)
 $ErrorActionPreference='Stop'
 $api=(Resolve-Path (Join-Path $PSScriptRoot '../aztec_exporter/AZtecBmpExporter.dll')).Path
 Add-Type -Path $api

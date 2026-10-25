@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory=$true)] $Layer,
     [Parameter(Mandatory=$true)] $Dataset,
     [Parameter(Mandatory=$true)] $GrainSizing,

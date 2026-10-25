@@ -1,9 +1,11 @@
-param(
+﻿param(
+    [int[]] $Samples = @(1,2,3),
+    [string] $OutputRoot = $PSScriptRoot,
     [ValidateRange(10,600)] [int] $TimeoutSeconds = 180,
     [string] $AztecRoot = 'C:\Program Files\Oxford Instruments NanoAnalysis\AZtec',
     [switch] $NativeChild,
-    [Parameter(Mandatory=$true)][string] $CprPath,
-    [Parameter(Mandatory=$true)][string] $OutputDirectory
+    [string] $CprPath,
+    [string] $OutputDirectory
 )
 $ErrorActionPreference = 'Stop'
 function Write-JsonNew([string]$Path, $Value) {
@@ -15,7 +17,41 @@ function Sha([string]$Path) {
     $hash=[Security.Cryptography.SHA256]::Create();$stream=[IO.File]::OpenRead($Path)
     try {([BitConverter]::ToString($hash.ComputeHash($stream))).Replace('-','')} finally {$stream.Dispose();$hash.Dispose()}
 }
-if(-not $NativeChild){throw 'native_child_required'}
+if(-not $NativeChild){
+    if($PSVersionTable.PSEdition -ne 'Core'){throw 'parent_requires_powershell_core'}
+    $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+    $child=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    foreach($n in $Samples){
+        if($n -notin 1,2,3){throw 'sample_out_of_scope'}
+        $sample=([string][char]0x6539)+([string][char]0x8fdb)+$n
+        $directory=Join-Path ([IO.Path]::GetFullPath($OutputRoot)) ($sample+'\native_bc')
+        if([IO.Directory]::Exists($directory) -and @(Get-ChildItem -LiteralPath $directory -Force | Where-Object {$_.Name -ne '_attempts'}).Count -gt 0){throw ('output_directory_exists:'+ $directory)}
+        [IO.Directory]::CreateDirectory($directory)|Out-Null
+        $arguments=@('-NoProfile','-STA','-ExecutionPolicy','Bypass','-File',$PSCommandPath,'-NativeChild',
+            '-CprPath',(Join-Path $root ('改进\'+$sample+'.cpr')),'-OutputDirectory',$directory,'-AztecRoot',$AztecRoot)
+        Write-JsonNew (Join-Path $directory 'command.json') @{Executable=$child;Arguments=$arguments;TimeoutSeconds=$TimeoutSeconds}
+        $info=[Diagnostics.ProcessStartInfo]::new();$info.FileName=$child;$info.UseShellExecute=$false;$info.CreateNoWindow=$true
+        $info.RedirectStandardOutput=$true;$info.RedirectStandardError=$true
+        $info.StandardOutputEncoding=[Text.UTF8Encoding]::new($false);$info.StandardErrorEncoding=[Text.UTF8Encoding]::new($false)
+        foreach($argument in $arguments){$info.ArgumentList.Add($argument)}
+        $process=[Diagnostics.Process]::new();$process.StartInfo=$info
+        try{
+            if(-not $process.Start()){throw 'child_start_failed'}
+            $stdoutTask=$process.StandardOutput.ReadToEndAsync();$stderrTask=$process.StandardError.ReadToEndAsync()
+            if(-not $process.WaitForExit($TimeoutSeconds*1000)){
+                $process.Kill($true);$process.WaitForExit()
+                Write-JsonNew (Join-Path $directory 'timeout.json') @{status='failed';reason='finite_child_timeout';seconds=$TimeoutSeconds}
+                throw 'native_bc_timeout'
+            }
+            [IO.File]::WriteAllText((Join-Path $directory 'stdout.log'),$stdoutTask.GetAwaiter().GetResult(),[Text.UTF8Encoding]::new($true))
+            [IO.File]::WriteAllText((Join-Path $directory 'stderr.log'),$stderrTask.GetAwaiter().GetResult(),[Text.UTF8Encoding]::new($true))
+            if($process.ExitCode -ne 0){throw ('native_bc_failed:sample='+$n+';exit='+$process.ExitCode)}
+            $report=Get-Content -LiteralPath (Join-Path $directory 'bc_native.json') -Encoding UTF8 -Raw|ConvertFrom-Json
+            [pscustomobject]@{Sample=$sample;Status=$report.status;RawRange=$report.audit.raw_range;Limits=$report.actual_limits_for_drawing;Pixels=$report.audit.count}|ConvertTo-Json -Compress
+        }finally{$process.Dispose()}
+    }
+    return
+}
 
 [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
 $source=(Resolve-Path -LiteralPath $CprPath).Path;$crc=[IO.Path]::ChangeExtension($source,'.crc')

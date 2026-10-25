@@ -1,4 +1,4 @@
-param()
+﻿param()
 $ErrorActionPreference = 'Stop'
 if ($PSVersionTable.PSEdition -ne 'Core' -or -not $IsWindows) { throw 'requires_windows_powershell_core' }
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -29,7 +29,8 @@ function WriteManifest([string]$path, [object[]]$files) {
         file_count=$files.Count; NativeFullMapFidelity='not_accepted'; vendor_assemblies_included=$false
         sample_or_reference_images_included=$false; files=$files
     }
-    [IO.File]::WriteAllText($path, ($value | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($true))
+    $json = ($value | ConvertTo-Json -Depth 8).Replace("`r`n", "`n").Replace("`r", "`n")
+    [IO.File]::WriteAllText($path, $json, [Text.UTF8Encoding]::new($true))
 }
 $bundlePrefix = 'assets/aztec-native-toolchain/'
 $bundleFiles = @($source.files | Where-Object { $_.relative_path.StartsWith($bundlePrefix) } | ForEach-Object {

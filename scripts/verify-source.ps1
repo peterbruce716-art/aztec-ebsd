@@ -1,4 +1,4 @@
-param()
+﻿param()
 $ErrorActionPreference = 'Stop'
 if ($PSVersionTable.PSEdition -ne 'Core') { throw 'requires_powershell_core' }
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))

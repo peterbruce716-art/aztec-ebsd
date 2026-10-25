@@ -13,6 +13,10 @@ $templateConfig=@{}
 $templatePath=[string]$request.template
 if(Test-Path -LiteralPath $out){throw 'output_path_must_be_new'}
 if($out.StartsWith('\\') -or $source.StartsWith('\\')){throw 'local_paths_only'}
+$staProbe="if (`$PSVersionTable.PSEdition -ne 'Desktop') { exit 21 }; if ([Threading.Thread]::CurrentThread.GetApartmentState() -ne [Threading.ApartmentState]::STA) { exit 22 }; exit 0"
+$staProbeEncoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($staProbe))
+$staProbeProcess=Start-Process -FilePath $nativeShell -ArgumentList @('-NoProfile','-STA','-EncodedCommand',$staProbeEncoded) -WindowStyle Hidden -PassThru -Wait
+if($staProbeProcess.ExitCode -ne 0){throw ('framework_sta_preflight_failed:exit=' + $staProbeProcess.ExitCode + ';expected=Desktop|STA')}
 [IO.Directory]::CreateDirectory($out)|Out-Null
 # Atomic ownership prevents concurrent CLI calls from sharing this job directory.
 $ownership=[IO.File]::Open((Join-Path $out '.owner'),[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
@@ -23,35 +27,37 @@ function Log($message){[IO.File]::AppendAllText((Join-Path $out 'render.log'),([
 $manifest=[ordered]@{schema_version=1;status='running';input=$source;crc=$crc;started_utc=[DateTime]::UtcNow.ToString('o');runtime=@{host_framework='.NET Framework 4.8';host_architecture='x64';native_process='Windows PowerShell 5.1 -STA';dll_isolation='child_process';network_mode='disabled';http_enabled=$false;gui_enabled=$false};native_data_status='pending';renderer='frozen_compatible_canvas';NativeFullMapFidelity='not_accepted';template=$(if($templatePath -in 'frozen-v1','native-v1'){$templatePath}else{@{path=$templatePath;sha256=(Get-FileHash -LiteralPath $templatePath -Algorithm SHA256).Hash}});custom_display_ranges=$templateConfig;gui_started=$false;mtex_used=$false;pillow_used=$false;reference_pixels_used=$false;outputs=@();errors=@();commands=@();limitations=@('AxisEdgeAligned is a validated compatibility rule, not proven internal viewport metadata.','2-degree gray boundaries, native stroke/antialiasing and saved full-map layout remain unverified.','Same-schema same-length CPR/CRC swaps have no inherent pair identity; supply expected_crc_sha256 from a trusted source for provenance validation.','CPR/CRC must already be cleaned and saved; no cleanup is performed.')}
 function Invoke-Stage([string]$Name,[string]$Executable,[string[]]$Arguments){
     $prefix=Join-Path $out ('work/'+$Name)
+    $frameworkSta=($Executable -match '(?i)\\WindowsPowerShell\\v1\.0\\powershell\.exe$' -and
+       @($Arguments).Count -eq 4 -and $Arguments[0] -eq '-NoProfile' -and
+       $Arguments[1] -eq '-STA' -and $Arguments[2] -eq '-EncodedCommand')
     $info=[Diagnostics.ProcessStartInfo]::new();$info.FileName=$Executable;$info.UseShellExecute=$false;$info.CreateNoWindow=$true;$info.RedirectStandardOutput=$true;$info.RedirectStandardError=$true
     $info.StandardOutputEncoding=[Text.UTF8Encoding]::new($false);$info.StandardErrorEncoding=[Text.UTF8Encoding]::new($false)
-    # Windows PowerShell 5.1 can ignore -STA when ProcessStartInfo.ArgumentList
-    # is used from a PowerShell 7 host. The native worker only needs a fixed,
-    # base64-safe argument string, so pass that command line verbatim.
-    if($Executable -match '(?i)\\WindowsPowerShell\\v1\.0\\powershell\.exe$' -and
-       @($Arguments).Count -eq 4 -and $Arguments[0] -eq '-NoProfile' -and
-       $Arguments[1] -eq '-STA' -and $Arguments[2] -eq '-EncodedCommand'){
-        $info.Arguments='-NoProfile -STA -EncodedCommand "'+[string]$Arguments[3]+'"'
-    } else {
+    if(-not $frameworkSta){
         foreach($a in $Arguments){$info.ArgumentList.Add($a)}
     }
-    $entry=[ordered]@{stage=$Name;executable=$Executable;arguments=$Arguments;timeout_seconds=$request.timeout_seconds;started_utc=[DateTime]::UtcNow.ToString('o')}
-    $p=[Diagnostics.Process]::new();$p.StartInfo=$info;Log ('start '+$Name)
+    $entry=[ordered]@{stage=$Name;executable=$Executable;arguments=$Arguments;timeout_seconds=$request.timeout_seconds;started_utc=[DateTime]::UtcNow.ToString('o');launcher=$(if($frameworkSta){'Start-Process'}else{'ProcessStartInfo'})}
+    $p=$null;$ot=$null;$et=$null;Log ('start '+$Name)
     try{
-        if(-not $p.Start()){throw 'process_start_failed'}
-        $ot=$p.StandardOutput.ReadToEndAsync();$et=$p.StandardError.ReadToEndAsync()
+        if($frameworkSta){
+            $stdoutPath=$prefix+'.stdout.log';$stderrPath=$prefix+'.stderr.log'
+            $p=Start-Process -FilePath $Executable -ArgumentList @($Arguments) -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+        }else{
+            $p=[Diagnostics.Process]::new();$p.StartInfo=$info
+            if(-not $p.Start()){throw 'process_start_failed'}
+            $ot=$p.StandardOutput.ReadToEndAsync();$et=$p.StandardError.ReadToEndAsync()
+        }
         if(-not $p.WaitForExit([int]$request.timeout_seconds*1000)){$p.Kill($true);$p.WaitForExit();$entry.timed_out=$true;throw ('stage_timeout:'+ $Name)}
         $entry.exit_code=$p.ExitCode
         if($p.ExitCode -ne 0){throw ('stage_failed:'+ $Name+';exit='+$p.ExitCode+';see='+$prefix+'.stderr.log')}
     }finally{
         if($ot){[IO.File]::WriteAllText(($prefix+'.stdout.log'),$ot.GetAwaiter().GetResult(),$utf8);[IO.File]::WriteAllText(($prefix+'.stderr.log'),$et.GetAwaiter().GetResult(),$utf8);$entry.exit_code=$p.ExitCode}
-        $entry.finished_utc=[DateTime]::UtcNow.ToString('o');$manifest.commands+=@($entry);$p.Dispose()
+        $entry.finished_utc=[DateTime]::UtcNow.ToString('o');$manifest.commands+=@($entry);if($null -ne $p){$p.Dispose()}
     }
     Log ('complete '+$Name)
 }
 function Native([string]$Name,[string]$Script,[hashtable]$Parameters){
-    # Keep the proven encoded child wrapper: on this AZtec installation it is
-    # the most reliable way to obtain a Desktop/STA PowerShell worker.
+    # Keep the encoded child wrapper; the worker's current-thread STA check is
+    # authoritative because launch flags do not guarantee its apartment.
     $payload=@{script=$Script;parameters=$Parameters}|ConvertTo-Json -Depth 6 -Compress
     $b=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($payload))
     $hash='function global:Get-FileHash {param([string]$LiteralPath,[string]$Algorithm="SHA256");$h=[Security.Cryptography.SHA256]::Create();$s=[IO.File]::OpenRead($LiteralPath);try{[pscustomobject]@{Hash=([BitConverter]::ToString($h.ComputeHash($s))).Replace("-","")}}finally{$s.Dispose();$h.Dispose()}};'

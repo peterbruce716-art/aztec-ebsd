@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$OutputDirectory)
+﻿param([Parameter(Mandatory=$true)][string]$OutputDirectory)
 $ErrorActionPreference = 'Stop'
 if ($PSVersionTable.PSEdition -ne 'Core' -or -not $IsWindows) { throw 'requires_windows_powershell_core' }
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -23,7 +23,18 @@ try {
     $build = & (Join-Path $root 'scripts/build-toolchain.ps1') | ConvertFrom-Json
     Check 'build_four_targets' ($build.status -eq 'built' -and $build.targets -eq 4)
     $toolchain = & (Join-Path $root 'scripts/verify-toolchain.ps1') -SkipEnvironment | ConvertFrom-Json
-    Check 'source_and_built_manifest_integrity' ($toolchain.status -eq 'passed' -and $toolchain.native_dataset_validation -eq 'not_run')
+    $requiredBinaries = @(
+        'assets/aztec-native-toolchain/03_tools/aztec_exporter/AZtecBmpExporter.exe',
+        'assets/aztec-native-toolchain/03_tools/aztec_exporter/AZtecBmpExporter.dll',
+        'assets/aztec-native-toolchain/03_tools/scripts/AztecNativeIpfConsole.exe',
+        'assets/aztec-native-toolchain/03_tools/scripts/AztecNativeIpfKeyProbeNoDispose.exe'
+    )
+    $binariesPresent = @($requiredBinaries | Where-Object {
+        -not [IO.File]::Exists((Join-Path $root $_)) -or (Get-Item -LiteralPath (Join-Path $root $_)).Length -le 0
+    }).Count -eq 0
+    Check 'source_and_built_manifest_integrity' ($toolchain.status -eq 'passed' -and
+        $toolchain.files_verified -ge 4 -and $toolchain.runtime_files_verified -gt 0 -and
+        $toolchain.NativeFullMapFidelity -eq 'not_accepted' -and $binariesPresent)
     $bundle = Join-Path $root 'assets/aztec-native-toolchain'
     $exe = Join-Path $bundle '03_tools/aztec_exporter/AZtecBmpExporter.exe'
     $process = [Diagnostics.ProcessStartInfo]::new($exe)

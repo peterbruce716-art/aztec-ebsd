@@ -1,75 +1,88 @@
-# AZtec EBSD integration skill
+# AZtec EBSD skill
 
-This repository is the public portion of an AZtec EBSD workflow. It provides
-PowerShell orchestration, .NET Framework helper source, native-map export
-adapters, cleanup persistence checks, a standalone BMP comparison utility, and
-the four self-built wrapper/verification binaries produced from this source.
+This repository contains the distributable portion of an AZtec Crystal EBSD skill: PowerShell orchestration, C# helper source, native-map export adapters, cleanup readback checks, tests, and four self-built helper binaries. It does not redistribute AZtec Crystal, Oxford Instruments assemblies, sample data, or reference images.
 
-The package excludes vendor assemblies, sample data, reference images, local
-validation reports, historical backups, and private workstation paths. The
-published executables and DLL are compiled from this repository's source; they
-are wrappers and verification hosts, not AZtec Crystal binaries. The native
-paths call an AZtec Crystal install that you must already be licensed to use;
-the repository does not redistribute that software.
+The included binaries are:
 
-## Build and smoke check
+- `assets/aztec-native-toolchain/03_tools/aztec_exporter/AZtecBmpExporter.exe`
+- `assets/aztec-native-toolchain/03_tools/aztec_exporter/AZtecBmpExporter.dll`
+- `assets/aztec-native-toolchain/03_tools/scripts/AztecNativeIpfConsole.exe`
+- `assets/aztec-native-toolchain/03_tools/scripts/AztecNativeIpfKeyProbeNoDispose.exe`
 
-Use PowerShell 7 on Windows with the .NET Framework 4.x C# compiler available:
+The exporter EXE and DLL work with the scripts and runtime described below; they are not standalone replacements for AZtec Crystal.
 
-```powershell
-.\scripts\build-toolchain.ps1
-.\tests\smoke.ps1 -OutputDirectory C:\temp\aztec-ebsd-smoke
-```
+## Install
 
-The build creates or refreshes four self-built helper binaries and integrity
-manifests. The binaries are included in the public repository; the manifests
-record their hashes. The smoke check uses synthetic bitmap data and mocked
-retry scenarios; it does not read or upload scientific datasets.
-
-The build expects the x64 compiler at
-`C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe` and runs on x64
-Windows. To install a downloaded copy as a Codex skill, clone or copy this
-repository to `C:\Users\<user>\.codex\skills\aztec-ebsd`; the skill resolves
-its scripts relative to that directory. Verify a source-only installation with:
+In PowerShell 7 on Windows, choose the active Codex home and clone the repository into its skills directory:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\verify-source.ps1
-pwsh -NoProfile -File .\scripts\verify-toolchain.ps1 -SkipEnvironment
+$codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME '.codex' }
+$skillRoot = Join-Path $codexHome 'skills/aztec-ebsd'
+if (Test-Path -LiteralPath $skillRoot) {
+    if (Test-Path -LiteralPath (Join-Path $skillRoot '.git')) {
+        git -C $skillRoot pull --ff-only
+    } else {
+        throw 'skill_destination_exists_choose_another_path'
+    }
+} else {
+    New-Item -ItemType Directory -Force -Path (Split-Path $skillRoot) | Out-Null
+    git clone https://github.com/peterbruce716-art/aztec-ebsd.git $skillRoot
+}
+Set-Location $skillRoot
 ```
 
-## Native execution prerequisites
+If the skill directory is already a Git clone, the example fast-forwards it. If that path exists but is not a Git clone, choose a different directory. Do not copy only the EXE/DLL files; the repository includes the companion scripts, sources, references, and integrity manifests they require.
 
-The native cleanup and export paths require a separately installed AZtec
-Crystal 5.1.7829.1 environment, .NET Framework 4.8, and matching CPR/CRC input
-files. The scripts preserve input hashes and require a new output directory.
-Use explicit local paths for every input and output. Do not place data or run
-reports inside this repository.
+## Verify the download
 
-`NativeFullMapFidelity=not_accepted` remains an explicit limitation. Successful
-process execution or a matching pixel snapshot does not establish universal
-equivalence to every AZtec map or configuration. Native scientific-data
-validation is intentionally not included in this public source release.
+Run these commands from the cloned skill directory:
 
-## Scientific interpretation boundary
+```powershell
+.\scripts\verify-source.ps1
+.\scripts\verify-toolchain.ps1 -SkipEnvironment
+.\tests\smoke.ps1 -OutputDirectory (Join-Path $env:TEMP ('aztec-ebsd-smoke-' + [guid]::NewGuid().ToString('N')))
+```
 
-Keep GOS, KAM, LAGB/HAGB, IPF, and recrystallized-like fraction distinct.
-GOS below 2 degrees may indicate a recrystallized-like or low internal
-misorientation state, but it is not proof of complete recrystallization. Low
-KAM supports lower local orientation gradients and stored dislocation density;
-it does not independently prove recrystallization. CDRX/DDRX discussion should
-also consider grain size, boundary migration, subgrain rotation, HAGB increase,
-and new-grain morphology.
+The smoke test builds all four binaries, checks manifests and script syntax, and exercises synthetic bitmap and mocked retry cases. It does not need or read an EBSD dataset. The output path must be new and outside the repository.
 
-## Layout
+To check native prerequisites as well, run:
 
-- `agents/openai.yaml`: skill display metadata.
-- `scripts/native-cleanup`: native cleanup orchestration and readback checks.
-- `assets/aztec-native-toolchain`: source for the native exporter, helpers, and
-  bitmap comparison routines.
-- `scripts/build-toolchain.ps1`: local source build; no vendor assembly is
-  compiled into the package.
-- `scripts/verify-source.ps1`: strict source manifest and path audit.
-- `scripts/verify-toolchain.ps1`: source/build manifest and CLI verification.
-- `tests/smoke.ps1`: synthetic, no-dataset smoke verification.
+```powershell
+.\scripts\verify-toolchain.ps1
+```
 
-See `NOTICE.md` for the vendor boundary and `LICENSE` for the source license.
+A full check requires the supported AZtec Crystal installation, x64 .NET Framework compiler/runtime, PowerShell 7, and Windows PowerShell Framework STA worker. See [NOTICE.md](NOTICE.md) and [binary distribution notes](BINARY-DISTRIBUTION.md).
+
+## Use
+
+For a saved CPR with its matching CRC, first verify the files are authorized and use a fresh output directory. For a native export:
+
+```powershell
+$exporter = Join-Path $skillRoot 'assets/aztec-native-toolchain/03_tools/aztec_exporter/AZtecBmpExporter.exe'
+& $exporter --input 'D:\data\map.cpr' --output 'D:\results\map-export' --types ALL --template native-v1
+```
+
+For the packaged cleanup workflow:
+
+```powershell
+& (Join-Path $skillRoot 'scripts/native-cleanup/run_aztec_native_cleanup.ps1') `
+  -CprPath 'D:\data\map.cpr' -OutputDirectory 'D:\results\map-cleanup'
+& (Join-Path $skillRoot 'scripts/native-cleanup/verify_aztec_native_cleanup_run.ps1') `
+  -RunDirectory 'D:\results\map-cleanup'
+```
+
+For batch scheduling, start with an existing workspace and original status log, and use a new retry status log:
+
+```powershell
+& (Join-Path $skillRoot 'scripts/retry_failed_aztec_native_batch_parallel.ps1') `
+  -Workspace 'D:\data\workspace' `
+  -OriginalStatusPath 'D:\data\workspace\status.jsonl' `
+  -RetryStatusPath 'D:\results\retry-status.jsonl' `
+  -DryRun
+```
+
+Remove `-DryRun` only when the paths, input scope, and requested processing have been checked. See the references for supported schemas, parameters, output interpretation, and limitations.
+
+## Package boundaries
+
+The manifests check file hashes and byte counts; they are integrity checks, not digital signatures. Build and smoke tests verify the packaged software path, not universal scientific validity. The package keeps `NativeFullMapFidelity=not_accepted`; validate each native result for the actual AZtec version and input.

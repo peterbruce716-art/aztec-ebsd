@@ -1,18 +1,19 @@
-# Cleanup, metrics, and MTEX boundary
+# 清理指标与 MTEX 分析边界
 
-KAM reports local orientation gradients and must state symmetry, neighbourhood,
-valid-point rules, angle limit, and edge treatment. GOS reports intragranular
-misorientation and must state grain reconstruction, boundary threshold,
-statistic, phase, and valid mask. The native profile parameters are explicit
-local configuration, not universal AZtec defaults.
+EBSD 测量、可视化和材料解释须分别处理。针对当前数据核对坐标约定、相对称性、邻点定义、晶粒重构、阈值和软件版本。
 
-Numerical agreement does not establish agreement of interpolation, colour
-keys, grain boundaries, legends, text, or complete canvas layout. Keep native
-map rendering and MTEX analysis as separately named workflows.
+## 指标解释
 
-This package contains no universal MTEX runner. Before writing a dataset
-specific MTEX script, verify the installed reader and version, phase symmetry,
-coordinate convention, point order, neighbourhood, grain reconstruction, and
-thresholds. Record unresolved-point and imputation masks separately. A low KAM
-or GOS below 2 degrees alone cannot prove complete recrystallization or CDRX/
-DDRX.
+- **GOS**：在选定晶粒重构和统计量下描述晶粒内取向分散。GOS < 2° 可表述为 recrystallized-like 或 low internal-misorientation state，但不能单独证明完全再结晶。
+- **KAM**：依赖所用邻点和角度阈值，反映局部取向梯度。低 KAM 可支持局部取向梯度和储存位错密度较低，但不能单独证明再结晶。
+- **LAGB/HAGB**：比例依赖角度分类阈值和晶粒重构方式，需报告判据。
+- **IPF**：晶体取向颜色图，需注明色键、坐标和对称性约定。
+- **Recrystallized-like fraction**：由明确阈值定义的操作性分类，不能与 GOS、KAM 或晶界比例互换。
+
+讨论 CDRX/DDRX 时需综合晶粒尺寸、边界迁移、亚晶旋转、HAGB 增加和新晶粒形貌；不把 correlation 写成 causation。
+
+## MTEX
+
+本包不提供通用 MTEX 处理入口。编写或运行 MTEX 代码前，先确认当前 MATLAB/MTEX 版本及官方 help 中的读取器与函数签名。针对本次数据核验相、对称性、坐标、点序、未索引点、邻域、晶粒重构和阈值。
+
+将 MTEX 图和指标明确标为 MTEX 结果；不要称为 AZtec 原生输出，也不要假设算法、显示范围、插值、晶粒重构或像素绘制相同。保留源数据，将派生结果写入独立目录。
