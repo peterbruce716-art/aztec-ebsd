@@ -3,7 +3,7 @@
     [Parameter(Mandatory=$true)][string]$CprPath,
     [Parameter(Mandatory=$true)][string]$RunDirectory,
     [string]$AztecRoot='C:\Program Files\Oxford Instruments NanoAnalysis\AZtec',
-    [ValidateRange(1,50)][int]$MaxZeroCycles=50,
+    [ValidateRange(1,200)][int]$MaxZeroCycles=100,
     [ValidateSet('NativeSave','FilteredQuaternion')][string]$PersistencePolicy='NativeSave'
 )
 $PersistencePolicy=if($PersistencePolicy -eq 'NativeSave'){'NativeSave'}else{'FilteredQuaternion'}

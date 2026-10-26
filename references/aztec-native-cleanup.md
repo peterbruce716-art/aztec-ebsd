@@ -6,11 +6,11 @@
 
 | 顺序 | 原生步骤 | 设置 |
 |---|---|---|
-| 1 | Zero Solution Removal | agreeing neighbours依次8→1；每级Iterate=true、MaxIterations=50；完整阶梯最多50趟，某趟结束零解数不再下降时停止 |
+| 1 | Zero Solution Removal | agreeing neighbours依次8→1；每级Iterate=true、MaxIterations=50；完整阶梯最多100趟，某趟结束零解数不再下降时停止 |
 | 2 | Wild Spike Removal | 独立执行一次；固定MaximumPixelSize=FourPixels |
 | 3 | Small-component pre-clean | 使用原生`RawData.Nullify(BitArray)`，清除同一`PhaseID`、8邻域连通、`PhaseID>0`且严格小于10 pixels的全部小连通区域；记录候选连通域、置零像素和残余数 |
 | 4 | Auto Clean-Up | 连续执行5次；每次将上一步返回的原生IDataset传入下一次，分别记录原生Sequence和结果；Sequence内WildSpikeRemoval也固定FourPixels |
-| 5 | Native zero-solution refill | 若Auto Clean后仍有零解，再执行最多50趟完整8→1原生`ZeroSolutionRemoval`邻域补点；最终残余零解必须为0 |
+| 5 | Native zero-solution refill | 若Auto Clean后仍有零解，再执行最多100趟完整8→1原生`ZeroSolutionRemoval`邻域补点；最终残余零解必须为0 |
 | 6 | Kuwahara | Quadrants、Radius=3，1次；最后执行 |
 
 用户已取消伪对称删除；不读取或要求其相/轴/角度参数，也不在Auto Clean中执行该步骤。UI Level1对应8邻点、Level8对应1邻点；内部枚举0..7对应8..1。每级50为原生迭代上限，不是实际执行轮数。完整阶梯50趟是另一层上限；默认启用历史上限，不能只做一趟。
@@ -23,7 +23,7 @@
 
 为处理导出前仍残留的零散像素，配方在独立 Wild Spike Removal 之后增加原生小连通区域预处理：按行优先网格使用8邻域遍历，只把同一`PhaseID`、`PhaseID>0`且连通域面积严格小于10 pixels的区域写入`BitArray`，调用`RawData.Nullify`置为原生零解，然后将该原生`IDataset`继续传给5轮Auto Clean。该步骤不是伪造的`WildSpikeRemovalStep`，也不使用伪对称删除；它保证导出前对所有小于10 pixels的同相连通噪点执行确定性的原生置零。运行报告中的`small_component_residual_components`和`small_component_residual_pixels`必须为0，验收器拒绝缺少该证据的结果。
 
-由于`RawData.Nullify`会产生新的零解，Auto Clean完成后仍可能留下空白点。v7 在最终 Kuwahara 之前重新使用AZtec原生`ZeroSolutionRemoval`，按8→1邻点顺序执行完整阶梯，最多50趟；每级仍为`Iterate=true`、`MaxIterations=50`，当一趟结束零解数不再下降时停止。如果最终零解数不为0，清理直接失败，禁止导出空白地图。该方案不直接写入自定义相位或取向，补点完全由AZtec原生邻域算法产生。
+由于`RawData.Nullify`会产生新的零解，Auto Clean完成后仍可能留下空白点。v7.1 在最终 Kuwahara 之前重新使用AZtec原生`ZeroSolutionRemoval`，按8→1邻点顺序执行完整阶梯，最多100趟；每级仍为`Iterate=true`、`MaxIterations=50`，当一趟结束零解数不再下降时停止。如果最终零解数不为0，清理直接失败，禁止导出空白地图；worker 会记录残余数量和 `native_zero_solution_exhausted` 诊断分类。该方案不直接写入自定义相位或取向，补点完全由AZtec原生邻域算法产生。
 
 ## 可执行入口
 
@@ -37,7 +37,7 @@ $skillRoot=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
   -RunDirectory 'C:\path\new-cleanup'
 ```
 
-默认`MaxZeroCycles=50`；仅用户明确变更配方时使用较小值。`StageTimeoutSeconds=3600`是当前主入口的每个worker进程默认超时，可在30..3600秒间设置。优化版默认`AuditMode=Fast`：逐阶段记录追加到`stage-progress.jsonl`，`stage-progress.json`运行时仅保存检查点，成功结束时再写最终摘要；`Strict`保留逐阶段全图快照。两种模式均执行最终完整快照、源文件哈希、持久化和独立读回核验。快模式只减少重复全图审计与JSON重写，不改变AZtec原生算法及最终验收。输入须有同名CRC，输出目录必须不存在。当前限定已验证的CPR字段顺序3,4,5,6,7,8,10,11,12和每点25字节的CRC；ErrorCode偏移20，源/派生原始C5码逐点哈希核对。当前入口仅支持单数据集、已加载的二维矩形网格；不支持的版本/数据结构直接失败，保留诊断目录。原始CPR/CRC以运行前后SHA-256检查，禁止覆盖。
+默认`MaxZeroCycles=100`，允许范围1..200；这里指完整8→1阶梯循环上限，不改变每个原生步骤的`MaxIterations=50`。`StageTimeoutSeconds=3600`是当前主入口的每个worker进程默认超时，可在30..3600秒间设置。优化版默认`AuditMode=Fast`：逐阶段记录追加到`stage-progress.jsonl`，`stage-progress.json`运行时仅保存检查点，成功结束时再写最终摘要；`Strict`保留逐阶段全图快照。两种模式均执行最终完整快照、源文件哈希、持久化和独立读回核验。快模式只减少重复全图审计与JSON重写，不改变AZtec原生算法及最终验收。输入须有同名CRC，输出目录必须不存在。当前限定已验证的CPR字段顺序3,4,5,6,7,8,10,11,12和每点25字节的CRC；ErrorCode偏移20，源/派生原始C5码逐点哈希核对。当前入口仅支持单数据集、已加载的二维矩形网格；不支持的版本/数据结构直接失败，保留诊断目录。原始CPR/CRC以运行前后SHA-256检查，禁止覆盖。
 
 实现调用`settings.GetCleanUpStep(tools)`及`step.Populate(previousDataset, CancellationTokenSource, isFirstStep)`，逐步传递输出。原生队列登记或历史记录不等于实际应用。Auto Clean的内部Sequence必须记录，不以本地补点算法替代。最终通过版本绑定的原生复制与保存接口写入`cleaned.cpr`/`cleaned.crc`，另起进程读取验证；持久化的具体边界见下节。
 

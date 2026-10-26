@@ -2,16 +2,17 @@
     [Parameter(Mandatory=$true)][string]$CprPath,
     [Parameter(Mandatory=$true)][string]$OutputDirectory,
     [ValidateRange(30,3600)][int]$StageTimeoutSeconds=3600,
-    [ValidateRange(1,50)][int]$MaxZeroCycles=50,
+    [ValidateRange(1,200)][int]$MaxZeroCycles=100,
     [ValidateSet('NativeSave','FilteredQuaternion')][string]$PersistencePolicy='NativeSave',
     [ValidateSet('Strict','Fast')][string]$AuditMode='Fast',
     [ValidateRange(1,50)][int]$ProgressCheckpointEvery=8,
+    [switch]$InProcessSta,
     [string]$SkillRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..')),
     [string]$AztecRoot='C:\Program Files\Oxford Instruments NanoAnalysis\AZtec'
 )
 $PersistencePolicy=if($PersistencePolicy -eq 'NativeSave'){'NativeSave'}else{'FilteredQuaternion'}
 $ErrorActionPreference='Stop'
-if($PSVersionTable.PSEdition -ne 'Core'){throw 'requires_powershell_7_core'}
+if((-not $InProcessSta -and $PSVersionTable.PSEdition -ne 'Core') -or ($InProcessSta -and ($PSVersionTable.PSEdition -ne 'Desktop' -or [Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA'))){throw 'requires_framework_sta_worker'}
 $source=(Resolve-Path -LiteralPath $CprPath).Path
 $crc=[IO.Path]::ChangeExtension($source,'.crc')
 if([IO.Path]::GetExtension($source) -ine '.cpr' -or -not [IO.File]::Exists($crc)){throw 'requires_cpr_and_matching_crc'}
@@ -49,8 +50,16 @@ $framework=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe
 foreach($file in @($worker,$snapshot,$orientation,$verify,$framework,(Join-Path $AztecRoot 'core.ebsd.dll'))){if(-not [IO.File]::Exists($file)){throw ('required_file_missing:'+$file)}}
 $version=[Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $AztecRoot 'AZtecCrystal.exe')).FileVersion
 if($version -ne '5.1.7829.1'){throw ('unvalidated_aztec_version:'+$version)}
-$probe="if (`$PSVersionTable.PSEdition -ne 'Desktop') { exit 21 }; if ([Threading.Thread]::CurrentThread.GetApartmentState() -ne [Threading.ApartmentState]::STA) { exit 22 }; exit 0"
+$probe = '$ErrorActionPreference=''Stop'';' +
+    '$rs=[RunspaceFactory]::CreateRunspace();' +
+    '$rs.ApartmentState=[Threading.ApartmentState]::STA;' +
+    '$rs.ThreadOptions=[System.Management.Automation.Runspaces.PSThreadOptions]::UseNewThread;' +
+    '$rs.Open();$ps=[PowerShell]::Create();$ps.Runspace=$rs;' +
+    '[void]$ps.AddScript(''if ($PSVersionTable.PSEdition -ne "Desktop") { exit 21 }; if ([Threading.Thread]::CurrentThread.GetApartmentState() -ne [Threading.ApartmentState]::STA) { exit 22 }; exit 0'');' +
+    '$async=$ps.BeginInvoke();$null=$ps.EndInvoke($async);' +
+    'if($ps.HadErrors){exit 23};$ps.Dispose();$rs.Dispose();exit 0'
 $encodedProbe=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($probe))
+$frameworkLaunchMutex=[Threading.Mutex]::new($false,'Global\AztecEbsdFrameworkStaLaunch')
 function Invoke-FrameworkProcess([string[]]$Arguments,[string]$StdoutPath='', [string]$StderrPath=''){
     $info=[Diagnostics.ProcessStartInfo]::new()
     $info.FileName=$framework
@@ -70,8 +79,17 @@ function Invoke-FrameworkProcess([string[]]$Arguments,[string]$StdoutPath='', [s
     $stderrTask=if($redirectErr){$process.StandardError.ReadToEndAsync()}else{$null}
     [pscustomobject]@{Process=$process;StdoutTask=$stdoutTask;StderrTask=$stderrTask;StdoutPath=$StdoutPath;StderrPath=$StderrPath}
 }
-$probeHandle=Invoke-FrameworkProcess @('-NoProfile','-STA','-EncodedCommand',$encodedProbe)
-try{$probeHandle.Process.WaitForExit();$probeExit=$probeHandle.Process.ExitCode}finally{$probeHandle.Process.Dispose()}
+$probeHeld=$false
+try {
+    if($InProcessSta){$probeExit=0}else{
+        $probeHeld=$frameworkLaunchMutex.WaitOne([TimeSpan]::FromMinutes(5))
+        if(-not $probeHeld){throw 'framework_sta_launch_mutex_timeout'}
+$probeHandle=Invoke-FrameworkProcess @('-NoProfile','-NonInteractive','-STA','-EncodedCommand',$encodedProbe)
+        try{$probeHandle.Process.WaitForExit();$probeExit=$probeHandle.Process.ExitCode}finally{$probeHandle.Process.Dispose()}
+    }
+} finally {
+    if($probeHeld){[void]$frameworkLaunchMutex.ReleaseMutex()}
+}
 if($probeExit -ne 0){throw ('framework_sta_preflight_failed:exit=' + $probeExit + ';expected=Desktop|STA')}
 $sourceBefore=(Get-FileHash -Algorithm SHA256 -LiteralPath $source).Hash
 $crcBefore=(Get-FileHash -Algorithm SHA256 -LiteralPath $crc).Hash
@@ -82,25 +100,53 @@ function Read-LogTail([string]$path,[int]$lines=40){
     try{return ((Get-Content -LiteralPath $path -Tail $lines -ErrorAction Stop) -join "`n")}catch{return $null}
 }
 function Invoke-Worker([string]$mode,[string]$inputCpr){
-    # The child must validate its actual execution thread; launch flags alone
-    # do not guarantee that the Framework worker runs in STA.
+    if($InProcessSta){
+        $stdoutPath=Join-Path $output ($mode+'.stdout.log')
+        $stderrPath=Join-Path $output ($mode+'.stderr.log')
+        & $worker -Mode $mode -CprPath $inputCpr -RunDirectory $output -AztecRoot $AztecRoot -MaxZeroCycles $MaxZeroCycles -PersistencePolicy $PersistencePolicy -AuditMode $AuditMode -ProgressCheckpointEvery $ProgressCheckpointEvery 1> $stdoutPath 2> $stderrPath
+        $exitCode=if($null -ne $LASTEXITCODE){[int]$LASTEXITCODE}else{0}
+        if($exitCode -ne 0){
+            $stderrTail=Read-LogTail $stderrPath
+            $failureKind=if([string]$stderrTail -match 'requires_framework_sta_worker'){'requires_framework_sta_worker'}else{'worker_process_failed'}
+            $diagnosticPath=Join-Path $output ($mode+'-failure-diagnostic.json')
+            Write-Json $diagnosticPath ([ordered]@{mode=$mode;exit_code=$exitCode;stdout_path=$stdoutPath;stderr_path=$stderrPath;stdout_tail=(Read-LogTail $stdoutPath);stderr_tail=$stderrTail;failure_kind=$failureKind})
+            throw ($failureKind+':'+$mode+'; diagnostic='+$diagnosticPath)
+        }
+        return
+    }
+    # Framework PowerShell may start its process thread as MTA even with -STA.
+    # Execute the native worker on an explicitly configured STA runspace thread.
     $quote = { param([string]$value) "'" + ($value -replace "'", "''") + "'" }
-    $command = '& ' + (& $quote $worker) +
-        ' -Mode ' + (& $quote $mode) +
-        ' -CprPath ' + (& $quote $inputCpr) +
-        ' -RunDirectory ' + (& $quote $output) +
-        ' -AztecRoot ' + (& $quote $AztecRoot) +
-        ' -MaxZeroCycles ' + [string]$MaxZeroCycles +
-        ' -PersistencePolicy ' + (& $quote $PersistencePolicy) +
-        ' -AuditMode ' + (& $quote $AuditMode) +
-        ' -ProgressCheckpointEvery ' + [string]$ProgressCheckpointEvery
+    $command = '$ErrorActionPreference=''Stop'';' +
+        '$rs=[RunspaceFactory]::CreateRunspace();' +
+        '$rs.ApartmentState=[Threading.ApartmentState]::STA;' +
+        '$rs.ThreadOptions=[System.Management.Automation.Runspaces.PSThreadOptions]::UseNewThread;' +
+        '$rs.Open();$ps=[PowerShell]::Create();$ps.Runspace=$rs;' +
+        '[void]$ps.AddCommand(' + (& $quote $worker) + ');' +
+        '[void]$ps.AddParameter(''Mode'',' + (& $quote $mode) + ');' +
+        '[void]$ps.AddParameter(''CprPath'',' + (& $quote $inputCpr) + ');' +
+        '[void]$ps.AddParameter(''RunDirectory'',' + (& $quote $output) + ');' +
+        '[void]$ps.AddParameter(''AztecRoot'',' + (& $quote $AztecRoot) + ');' +
+        '[void]$ps.AddParameter(''MaxZeroCycles'',' + [string]$MaxZeroCycles + ');' +
+        '[void]$ps.AddParameter(''PersistencePolicy'',' + (& $quote $PersistencePolicy) + ');' +
+        '[void]$ps.AddParameter(''AuditMode'',' + (& $quote $AuditMode) + ');' +
+        '[void]$ps.AddParameter(''ProgressCheckpointEvery'',' + [string]$ProgressCheckpointEvery + ');' +
+        '$out=$ps.Invoke();foreach($item in $out){[Console]::Out.WriteLine([string]$item)};' +
+        'if($ps.HadErrors){foreach($e in $ps.Streams.Error){[Console]::Error.WriteLine([string]$e)};exit 1};' +
+        '$ps.Dispose();$rs.Dispose()'
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
     $stdoutPath=Join-Path $output ($mode+'.stdout.log')
     $stderrPath=Join-Path $output ($mode+'.stderr.log')
     $arguments=@('-NoProfile','-STA','-ExecutionPolicy','Bypass','-EncodedCommand',$encoded)
     $process=$null
+    $launchHeld=$false
     try{
+        $launchHeld=$frameworkLaunchMutex.WaitOne([TimeSpan]::FromMinutes(5))
+        if(-not $launchHeld){throw 'framework_worker_launch_mutex_timeout'}
         $launched=Invoke-FrameworkProcess $arguments $stdoutPath $stderrPath
+        Start-Sleep -Milliseconds 250
+        [void]$frameworkLaunchMutex.ReleaseMutex()
+        $launchHeld=$false
         $process=$launched.Process
         $finished=$process.WaitForExit($StageTimeoutSeconds*1000)
         if(-not $finished){$process.Kill($true);if(-not $process.WaitForExit(10000)){throw 'worker_termination_unconfirmed'}}
@@ -108,19 +154,28 @@ function Invoke-Worker([string]$mode,[string]$inputCpr){
         if($launched.StderrTask){[IO.File]::WriteAllText($stderrPath,$launched.StderrTask.GetAwaiter().GetResult(),[Text.UTF8Encoding]::new($false))}
         if(-not $finished){throw ('worker_timeout:'+$mode)}
         if($process.ExitCode -ne 0){
+            $stderrTail=Read-LogTail $stderrPath
+            $zeroMatch=[regex]::Match([string]$stderrTail,'native_neighbor_refill_left_zero_solutions:(\d+)')
+            $failureKind=if($zeroMatch.Success){'native_zero_solution_exhausted'}elseif([string]$stderrTail -match 'requires_framework_sta_worker'){'requires_framework_sta_worker'}else{'worker_process_failed'}
+            $residualZero=if($zeroMatch.Success){[int]$zeroMatch.Groups[1].Value}else{$null}
             $diagnostic=[ordered]@{
                 mode=$mode
                 exit_code=$process.ExitCode
                 stdout_path=$stdoutPath
                 stderr_path=$stderrPath
                 stdout_tail=(Read-LogTail $stdoutPath)
-                stderr_tail=(Read-LogTail $stderrPath)
+                stderr_tail=$stderrTail
+                failure_kind=$failureKind
+                residual_zero_solutions=$residualZero
             }
             $diagnosticPath=Join-Path $output ($mode+'-failure-diagnostic.json')
             Write-Json $diagnosticPath $diagnostic
-            throw ('worker_failed:'+$mode+'; diagnostic='+$diagnosticPath)
+            throw ($failureKind+':'+$(if($null -ne $residualZero){$residualZero}else{$mode})+'; diagnostic='+$diagnosticPath)
         }
-    }finally{if($null -ne $process){$process.Dispose()}}
+    }finally{
+        if($launchHeld){[void]$frameworkLaunchMutex.ReleaseMutex()}
+        if($null -ne $process){$process.Dispose()}
+    }
 }
 try{
     Invoke-Worker 'clean' $source

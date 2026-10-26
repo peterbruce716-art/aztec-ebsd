@@ -60,6 +60,8 @@ $bundleRequired=@(
     '03_tools/aztec_exporter/native_kam.ps1',
     '03_tools/aztec_exporter/render_ipf_layout.ps1',
     '03_tools/aztec_exporter/README.md',
+    '03_tools/aztec_exporter/StaFullMapWorker.cs',
+    '03_tools/aztec_exporter/StaFullMapWorker.exe',
     '03_tools/scripts/AztecNativeIpfConsole.exe',
     '03_tools/scripts/AztecNativeIpfConsole.cs',
     '03_tools/scripts/AztecNativeIpfKeyProbeNoDispose.exe',
@@ -73,6 +75,9 @@ $bundleRequired=@(
     '03_tools/scripts/test_aztec_native_retry.ps1',
     '03_tools/scripts/probe_aztec_boundary_determinism.ps1',
     '03_tools/scripts/AztecBoundaryDeterminismProbe.cs',
+    'aztec_bmp_compare/p46_ipf_overlay/export_native_bc.ps1',
+    'aztec_bmp_compare/p46_ipf_overlay/IpfOverlayRenderer.cs',
+    'aztec_bmp_compare/p46_ipf_overlay/NativeBcAudit.cs',
     'aztec_bmp_compare/p47_baseline/P47BaselineMetrics.cs'
 )
 $runtimeRequired=@(
@@ -91,8 +96,11 @@ $runtimeRequired=@(
     'scripts/native-cleanup/verify_aztec_native_cleanup_run.ps1',
     'scripts/native-cleanup/verify_aztec_native_cleanup_run_optimized.ps1',
     'scripts/retry_failed_aztec_native_batch_parallel.ps1',
+    'scripts/run_aztec_native_fresh_batch.ps1',
+    'scripts/run_aztec_native_fresh_batch_inproc.ps1',
     'scripts/parallel-resource-policy.ps1',
     'scripts/test-parallel-resource-policy.ps1',
+    'scripts/test-process-launch.ps1',
     'scripts/verify-toolchain.ps1'
 )
 $bundleCheck=VerifyManifest $bundleRoot (Join-Path $bundleRoot 'toolchain-manifest.json') $bundleRequired 'toolchain'
@@ -118,5 +126,11 @@ if(-not $SkipEnvironment){
     $help=@(& $exe --help)
     if($LASTEXITCODE -ne 0 -or -not ($help -match 'AZtecBmpExporter --input')){throw 'exporter_help_failed'}
     $environment.exporter_help_passed=$true
+    $worker=Join-Path $bundleRoot '03_tools/aztec_exporter/StaFullMapWorker.exe'
+    $workerCode="if (`$PSVersionTable.PSEdition -ne 'Desktop'){throw 'worker_wrong_edition'};if([Threading.Thread]::CurrentThread.GetApartmentState() -ne [Threading.ApartmentState]::STA){throw 'worker_wrong_apartment'}"
+    $workerPayload=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($workerCode))
+    $workerExit=Invoke-ChildExitCode $worker @($workerPayload)
+    if($workerExit -ne 0){throw ('sta_worker_probe_failed:exit=' + $workerExit)}
+    $environment.sta_worker_probe_passed=$true
 }
 [pscustomobject]@{status='passed';files_verified=$bundleCheck.files_verified;runtime_files_verified=$runtimeCheck.files_verified;bundle_root=$bundleRoot;environment=$environment;NativeFullMapFidelity='not_accepted'}|ConvertTo-Json -Depth 5

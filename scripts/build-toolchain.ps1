@@ -7,15 +7,33 @@ if ($sourceCheck.status -ne 'passed') { throw 'source_verification_failed' }
 $bundle = Join-Path $root 'assets/aztec-native-toolchain'
 $compiler = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
 if (-not [IO.File]::Exists($compiler)) { throw 'framework_x64_compiler_missing' }
+$frameworkRoot = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319'
+$wpfRoot = Join-Path $frameworkRoot 'WPF'
+$automationRoot = Join-Path $env:WINDIR 'Microsoft.Net/assembly/GAC_MSIL/System.Management.Automation'
+$automation = @(Get-ChildItem -LiteralPath $automationRoot -Recurse -File -Filter 'System.Management.Automation.dll' -ErrorAction SilentlyContinue | Select-Object -First 1)
+if ($automation.Count -ne 1) { throw 'framework_automation_assembly_missing' }
+$workerReferences = @(
+    $automation[0].FullName,
+    (Join-Path $wpfRoot 'PresentationFramework.dll'),
+    (Join-Path $wpfRoot 'PresentationCore.dll'),
+    (Join-Path $wpfRoot 'WindowsBase.dll'),
+    (Join-Path $frameworkRoot 'System.Xaml.dll')
+)
+foreach ($reference in $workerReferences) { if (-not [IO.File]::Exists($reference)) { throw ('framework_reference_missing:' + $reference) } }
 $targets = @(
     @{ source='03_tools/aztec_exporter/AZtecBmpExporter.cs'; output='03_tools/aztec_exporter/AZtecBmpExporter.exe'; kind='exe' },
     @{ source='03_tools/aztec_exporter/AZtecBmpApi.cs'; output='03_tools/aztec_exporter/AZtecBmpExporter.dll'; kind='library' },
     @{ source='03_tools/scripts/AztecNativeIpfConsole.cs'; output='03_tools/scripts/AztecNativeIpfConsole.exe'; kind='exe' },
-    @{ source='03_tools/scripts/AztecNativeIpfKeyProbe.cs'; output='03_tools/scripts/AztecNativeIpfKeyProbeNoDispose.exe'; kind='exe' }
+    @{ source='03_tools/scripts/AztecNativeIpfKeyProbe.cs'; output='03_tools/scripts/AztecNativeIpfKeyProbeNoDispose.exe'; kind='exe' },
+    @{ source='03_tools/aztec_exporter/StaFullMapWorker.cs'; output='03_tools/aztec_exporter/StaFullMapWorker.exe'; kind='worker' }
 )
 foreach ($target in $targets) {
     $output = Join-Path $bundle $target.output
-    & $compiler /nologo ('/target:' + $target.kind) /platform:x64 /reference:System.Core.dll /reference:System.Web.Extensions.dll ('/out:' + $output) (Join-Path $bundle $target.source)
+    if ($target.kind -eq 'worker') {
+        & $compiler /nologo /target:exe /platform:x64 $( $workerReferences | ForEach-Object { '/reference:' + $_ } ) ('/out:' + $output) (Join-Path $bundle $target.source)
+    } else {
+        & $compiler /nologo ('/target:' + $target.kind) /platform:x64 /reference:System.Core.dll /reference:System.Web.Extensions.dll ('/out:' + $output) (Join-Path $bundle $target.source)
+    }
     if ($LASTEXITCODE -ne 0) { throw ('build_failed:' + $target.source) }
 }
 $source = [Text.UTF8Encoding]::new($false, $true).GetString([IO.File]::ReadAllBytes((Join-Path $root 'source-manifest.json'))).TrimStart([char]0xFEFF) | ConvertFrom-Json

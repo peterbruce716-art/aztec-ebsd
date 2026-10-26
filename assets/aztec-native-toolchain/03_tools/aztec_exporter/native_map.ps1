@@ -10,7 +10,7 @@ param(
 )
 
 $ErrorActionPreference='Stop'
-if ($PSVersionTable.PSEdition -ne 'Desktop' -or [Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') {
+if ($PSVersionTable.PSEdition -ne 'Desktop' -or [Threading.Thread]::CurrentThread.GetApartmentState() -ne [Threading.ApartmentState]::STA) {
     throw 'native_map_requires_Windows_PowerShell_Framework_STA_child_process'
 }
 $process=[Diagnostics.Process]::GetCurrentProcess()
@@ -76,7 +76,8 @@ try {
     if (-not [IO.File]::Exists($source) -or -not [IO.File]::Exists($crc)) { throw 'source_cpr_crc_pair_missing' }
     $report.source=$source; $report.source_crc=$crc
     $before=@{cpr=Sha $source;crc=Sha $crc}; $report.before=$before
-    $report.worker_sha256=Sha $PSCommandPath
+    $workerPath=if($PSCommandPath){$PSCommandPath}elseif($env:AZTEC_NATIVE_MAP_SCRIPT_PATH){$env:AZTEC_NATIVE_MAP_SCRIPT_PATH}else{$null}
+    $report.worker_sha256=if($workerPath){Sha $workerPath}else{$null}
     $report.stage='load'
     # Set the UI language before any vendor type initializes localized defaults.
     [Threading.Thread]::CurrentThread.CurrentUICulture=[Globalization.CultureInfo]::GetCultureInfo('zh-CN')
@@ -232,8 +233,21 @@ try {
     $report.width=$bitmap.PixelWidth; $report.height=$bitmap.PixelHeight
     $report.native_pixel_snapshot=PixelSnapshot $bitmap
     $report.stage='native_map_save'
-    $target=Join-Path $out ($Metric+'.bmp')
-    $export.SaveAs($target)
+    $target=[IO.Path]::GetFullPath((Join-Path $out ($Metric+'.bmp')))
+    $report.target_debug=@{value=[string]$target;type=[string]$target.GetType().FullName;length=([string]$target).Length}
+    $report.save_method='AZtec_MapExport.SaveAs'
+    try {
+        $export.SaveAs($target)
+    } catch [ArgumentException] {
+        # Some embedded Framework runspaces reject the full path inside the
+        # vendor SaveAs helper even though the native BitmapSource is valid.
+        # Encode that same native BitmapSource directly and verify pixels below.
+        $report.save_method='WpfBmpBitmapEncoder_fallback'
+        $encoder=[Windows.Media.Imaging.BmpBitmapEncoder]::new()
+        $encoder.Frames.Add([Windows.Media.Imaging.BitmapFrame]::Create($bitmap))
+        $stream=[IO.File]::Open($target,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+        try { $encoder.Save($stream) } finally { $stream.Dispose() }
+    }
     if (-not [IO.File]::Exists($target)) { throw 'native_save_missing' }
     $report.stage='verify_saved_native_pixels'
     $stream=[IO.File]::OpenRead($target)

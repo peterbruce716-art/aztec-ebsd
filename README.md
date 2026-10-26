@@ -1,6 +1,6 @@
 # AZtec EBSD skill
 
-This repository publishes the reusable AZtec EBSD skill: PowerShell orchestration, C# helpers, native map-export adapters, cleanup readback checks, references, tests, and four self-built helper binaries.
+This repository publishes the reusable AZtec EBSD skill: PowerShell orchestration, C# helpers, native map-export adapters, cleanup readback checks, references, tests, and five self-built helper binaries.
 
 The binaries are built from the C# sources in this repository. They do not contain Oxford Instruments AZtec Crystal, vendor assemblies, sample CPR/CRC/CTF data, or reference images. Native execution still requires a separately installed and licensed AZtec Crystal environment.
 
@@ -26,7 +26,7 @@ From the cloned skill directory:
 .\tests\smoke.ps1 -OutputDirectory (Join-Path $env:TEMP ('aztec-ebsd-smoke-' + [guid]::NewGuid().ToString('N')))
 ```
 
-To rebuild the four self-built binaries from the checked-in C# sources:
+To rebuild the five self-built binaries from the checked-in C# sources:
 
 ```powershell
 .\scripts\build-toolchain.ps1

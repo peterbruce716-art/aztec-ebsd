@@ -9,10 +9,10 @@ if($r.status -ne $requiredStatus){throw 'native_cleanup_incomplete'}
 if($r.worker.status -ne 'native_saved_pending_independent_readback' -or $r.readback.status -ne 'readback_verified'){throw 'worker_status_invalid'}
 if($r.worker.recipe -ne 'aztec-native-8to1-50-wild4-x1-auto5-quadrants3-smalllt10-native-refill-v7' -or $r.worker.wild_spike_passes -ne 1 -or $r.worker.wild_spike_maximum_pixels -ne 4 -or $r.worker.auto_clean_passes -ne 5 -or $r.worker.auto_clean_dataset_flow -ne 'previous_native_IDataset_result'){throw 'wild_spike_recipe_contract_failed'}
 if($r.worker.small_component_threshold_pixels -ne 10 -or $r.worker.small_component_connectivity -ne 'EightNeighbors' -or $r.worker.small_component_component_rule -ne 'same_phase_and_phase_gt_zero' -or $r.worker.small_component_nulled_components -lt 0 -or $r.worker.small_component_nulled_pixels -lt 0 -or $r.worker.small_component_residual_components -ne 0 -or $r.worker.small_component_residual_pixels -ne 0){throw 'small_component_cleanup_contract_failed'}
-if($r.worker.native_refill_cycles -lt 1 -or $r.worker.native_refill_cycles -gt 50 -or $r.worker.native_refill_max_iterations -ne 50 -or $r.worker.native_refill_residual_zero_solutions -ne 0 -or $r.worker.final_zero_solution_count -ne 0){throw 'native_refill_contract_failed'}
+if($r.worker.native_refill_cycles -lt 1 -or $r.worker.native_refill_cycles -gt 200 -or $r.worker.native_refill_max_iterations -ne 50 -or $r.worker.native_refill_residual_zero_solutions -ne 0 -or $r.worker.final_zero_solution_count -ne 0){throw 'native_refill_contract_failed'}
 foreach($hash in @($r.source_cpr_sha256,$r.source_crc_sha256,$r.worker.core_sha256,$r.worker.source_snapshot_sha256,$r.worker.expected_snapshot_sha256,$r.worker.quality_before,$r.worker.quality_after,$r.readback.snapshot_sha256,$r.readback.quality_sha256)){if($hash -notmatch '^[A-Fa-f0-9]{64}$'){throw 'required_sha256_invalid'}}
 $cycles=[int]$r.worker.zero_cycles_run
-if($cycles -lt 1 -or $r.worker.zero_cycle_limit -lt 1 -or $cycles -gt $r.worker.zero_cycle_limit -or $r.worker.zero_cycle_limit -gt 50){throw 'zero_cycle_limit_invalid'}
+if($cycles -lt 1 -or $r.worker.zero_cycle_limit -lt 1 -or $cycles -gt $r.worker.zero_cycle_limit -or $r.worker.zero_cycle_limit -gt 200){throw 'zero_cycle_limit_invalid'}
 $expected=@()
 foreach($cycle in 1..$cycles){$expected+=@('zero_8','zero_7','zero_6','zero_5','zero_4','zero_3','zero_2','zero_1')}
 $expected+=@('wild_spike')
@@ -61,7 +61,7 @@ for($i=0;$i -lt $expected.Count;$i++){
 for($cycle=0;$cycle -lt $cycles;$cycle++){
  $first=$r.worker.stages[8*$cycle];$lastZero=$r.worker.stages[8*$cycle+7]
  if($cycle -lt $cycles-1 -and $lastZero.after_zero -ge $first.before_zero){throw 'zero_cycles_continued_after_plateau'}
- if($cycle -eq $cycles-1 -and $cycles -lt $r.worker.zero_cycle_limit -and $lastZero.after_zero -lt $first.before_zero){throw 'zero_cycles_stopped_before_plateau'}
+ if($cycle -eq $cycles-1 -and $cycles -lt $r.worker.zero_cycle_limit -and $lastZero.after_zero -lt $first.before_zero -and $lastZero.after_zero -ne 0){throw 'zero_cycles_stopped_before_plateau'}
 }
 $last=$r.worker.stages[-1]
 if($last.settings.Radius -ne 3 -or $last.settings.FilterType -ne 'Quadrants'){throw 'filter_settings_failed'}

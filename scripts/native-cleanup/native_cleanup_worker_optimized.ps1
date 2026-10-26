@@ -3,7 +3,7 @@
     [Parameter(Mandatory=$true)][string]$CprPath,
     [Parameter(Mandatory=$true)][string]$RunDirectory,
     [string]$AztecRoot='C:\Program Files\Oxford Instruments NanoAnalysis\AZtec',
-    [ValidateRange(1,50)][int]$MaxZeroCycles=50,
+    [ValidateRange(1,200)][int]$MaxZeroCycles=100,
     [ValidateSet('NativeSave','FilteredQuaternion')][string]$PersistencePolicy='NativeSave',
     [ValidateSet('Strict','Fast')][string]$AuditMode='Fast',
     [ValidateRange(1,50)][int]$ProgressCheckpointEvery=8
@@ -171,11 +171,14 @@ try{
         if($stages.Count % $ProgressCheckpointEvery -eq 0){Write-ProgressCheckpoint 'running' $stages $stage}
     }
     $cycles=0
+    $zeroCycleStopReason='max_cycles'
     for($cycle=1;$cycle -le $MaxZeroCycles;$cycle++){
         $cycleBefore=Get-ActualZeroCount $state.dataset
         foreach($level in 0..7){$settings.ZeroSolutionRemovalSettings.Level=$level;Run-NativeStep $settings.ZeroSolutionRemovalSettings ('zero_'+(8-$level))}
         $cycles=$cycle
-        if((Get-ActualZeroCount $state.dataset) -ge $cycleBefore){break}
+        $cycleAfter=Get-ActualZeroCount $state.dataset
+        if($cycleAfter -eq 0){$zeroCycleStopReason='zero';break}
+        if($cycleAfter -ge $cycleBefore){$zeroCycleStopReason='plateau';break}
     }
     $wildSpikePasses=1
     for($pass=1;$pass -le $wildSpikePasses;$pass++){Run-NativeStep $settings.WildSpikeRemovalSettings 'wild_spike'}
@@ -198,11 +201,14 @@ try{
     $autoCleanPasses=5
     for($pass=1;$pass -le $autoCleanPasses;$pass++){Run-NativeStep $settings.AutoCleanUpSettings ('auto_'+$pass)}
     $nativeRefillCycles=0
+    $nativeRefillStopReason='max_cycles'
     for($refill=1;$refill -le $MaxZeroCycles;$refill++){
         $refillBefore=Get-ActualZeroCount $state.dataset
         foreach($level in 0..7){$settings.ZeroSolutionRemovalSettings.Level=$level;Run-NativeStep $settings.ZeroSolutionRemovalSettings ('refill_zero_'+(8-$level))}
         $nativeRefillCycles=$refill
-        if((Get-ActualZeroCount $state.dataset) -ge $refillBefore){break}
+        $refillAfter=Get-ActualZeroCount $state.dataset
+        if($refillAfter -eq 0){$nativeRefillStopReason='zero';break}
+        if($refillAfter -ge $refillBefore){$nativeRefillStopReason='plateau';break}
     }
     $finalRefillZero=Get-ActualZeroCount $state.dataset
     if($finalRefillZero -ne 0){throw ('native_neighbor_refill_left_zero_solutions:'+$finalRefillZero)}

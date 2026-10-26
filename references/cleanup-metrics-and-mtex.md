@@ -2,7 +2,7 @@
 
 ## 清理与持久化
 
-当前用户的默认清理采用已验证的本地配方 `local-cleanup-v1`，使用本技能`scripts/native-cleanup/run_aztec_native_cleanup.ps1`；名称仅标识文档配方，不是 CLI 参数。其他任务须依据当前输入和目标明确配方与参数，不将本地设置视为材料无关的通用默认。纯导出保持CPR/CRC字节不变。配方与验证范围见[AZtec原生降噪](aztec-native-cleanup.md)：8→1每级最多50次原生迭代，完整阶梯最多50趟、零解不再下降时停止；先独立执行一次 Wild Spike Removal 并固定 `FourPixels`，使≤4 pixels 的小连通晶粒进入原生候选判据；然后Auto Clean五次，其序列内的 WildSpikeRemoval 同样为 `FourPixels`；最后Quadrants/radius3 Kuwahara。伪对称删除已按用户决定排除。5次Auto Clean每次须传递上次原生IDataset结果。
+当前用户的默认清理采用已验证的本地配方 `local-cleanup-v1`，使用本技能`scripts/native-cleanup/run_aztec_native_cleanup.ps1`；名称仅标识文档配方，不是 CLI 参数。其他任务须依据当前输入和目标明确配方与参数，不将本地设置视为材料无关的通用默认。纯导出保持CPR/CRC字节不变。配方与验证范围见[AZtec原生降噪](aztec-native-cleanup.md)：8→1每级最多50次原生迭代，完整阶梯最多100趟、零解不再下降时停止；先独立执行一次 Wild Spike Removal 并固定 `FourPixels`，使≤4 pixels 的小连通晶粒进入原生候选判据；然后Auto Clean五次，其序列内的 WildSpikeRemoval 同样为 `FourPixels`；最后Quadrants/radius3 Kuwahara。伪对称删除已按用户决定排除。5次Auto Clean每次须传递上次原生IDataset结果。
 
 使用版本绑定的原生接口保存派生CPR，并在独立进程读回。四元数与Euler均须审核，不能只看零解计数。默认NativeSave保留原生Euler，临时滤波四元数不一定全部持久化；FilteredQuaternion显式提交滤波四元数，两种保存状态须独立命名，不能把前者称为完整滤波取向保存。详见降噪规范的保存策略。原生临时数据质量数组与最终保留的采集质量字段须分别记录。修改掩码不等于donor来源，后者未暴露，不得声称补点是实测。当前新入口优先于旧工作区pipeline及历史渲染器。独立验收通过后才调用当前MapExport。
 

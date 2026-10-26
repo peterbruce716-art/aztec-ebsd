@@ -2,7 +2,7 @@
     [Parameter(Mandatory=$true)][string]$CprPath,
     [Parameter(Mandatory=$true)][string]$OutputDirectory,
     [ValidateRange(30,3600)][int]$StageTimeoutSeconds=3600,
-    [ValidateRange(1,50)][int]$MaxZeroCycles=50,
+    [ValidateRange(1,200)][int]$MaxZeroCycles=100,
     [ValidateSet('NativeSave','FilteredQuaternion')][string]$PersistencePolicy='NativeSave',
     [ValidateSet('Strict','Fast')][string]$AuditMode='Fast',
     [ValidateRange(1,50)][int]$ProgressCheckpointEvery=8,
@@ -85,15 +85,23 @@ function Invoke-Worker([string]$mode,[string]$inputCpr){
     # The child must validate its actual execution thread; launch flags alone
     # do not guarantee that the Framework worker runs in STA.
     $quote = { param([string]$value) "'" + ($value -replace "'", "''") + "'" }
-    $command = '& ' + (& $quote $worker) +
-        ' -Mode ' + (& $quote $mode) +
-        ' -CprPath ' + (& $quote $inputCpr) +
-        ' -RunDirectory ' + (& $quote $output) +
-        ' -AztecRoot ' + (& $quote $AztecRoot) +
-        ' -MaxZeroCycles ' + [string]$MaxZeroCycles +
-        ' -PersistencePolicy ' + (& $quote $PersistencePolicy) +
-        ' -AuditMode ' + (& $quote $AuditMode) +
-        ' -ProgressCheckpointEvery ' + [string]$ProgressCheckpointEvery
+    $command = '$ErrorActionPreference=''Stop'';' +
+        '$rs=[RunspaceFactory]::CreateRunspace();' +
+        '$rs.ApartmentState=[Threading.ApartmentState]::STA;' +
+        '$rs.ThreadOptions=[System.Management.Automation.Runspaces.PSThreadOptions]::UseNewThread;' +
+        '$rs.Open();$ps=[PowerShell]::Create();$ps.Runspace=$rs;' +
+        '[void]$ps.AddCommand(' + (& $quote $worker) + ');' +
+        '[void]$ps.AddParameter(''Mode'',' + (& $quote $mode) + ');' +
+        '[void]$ps.AddParameter(''CprPath'',' + (& $quote $inputCpr) + ');' +
+        '[void]$ps.AddParameter(''RunDirectory'',' + (& $quote $output) + ');' +
+        '[void]$ps.AddParameter(''AztecRoot'',' + (& $quote $AztecRoot) + ');' +
+        '[void]$ps.AddParameter(''MaxZeroCycles'',' + [string]$MaxZeroCycles + ');' +
+        '[void]$ps.AddParameter(''PersistencePolicy'',' + (& $quote $PersistencePolicy) + ');' +
+        '[void]$ps.AddParameter(''AuditMode'',' + (& $quote $AuditMode) + ');' +
+        '[void]$ps.AddParameter(''ProgressCheckpointEvery'',' + [string]$ProgressCheckpointEvery + ');' +
+        '$out=$ps.Invoke();foreach($item in $out){[Console]::Out.WriteLine([string]$item)};' +
+        'if($ps.HadErrors){foreach($e in $ps.Streams.Error){[Console]::Error.WriteLine([string]$e)};exit 1};' +
+        '$ps.Dispose();$rs.Dispose()'
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
     $stdoutPath=Join-Path $output ($mode+'.stdout.log')
     $stderrPath=Join-Path $output ($mode+'.stderr.log')
@@ -108,17 +116,20 @@ function Invoke-Worker([string]$mode,[string]$inputCpr){
         if($launched.StderrTask){[IO.File]::WriteAllText($stderrPath,$launched.StderrTask.GetAwaiter().GetResult(),[Text.UTF8Encoding]::new($false))}
         if(-not $finished){throw ('worker_timeout:'+$mode)}
         if($process.ExitCode -ne 0){
+            $stderrTail=Read-LogTail $stderrPath
+            $failureKind=if([string]$stderrTail -match 'requires_framework_sta_worker'){'requires_framework_sta_worker'}else{'worker_process_failed'}
             $diagnostic=[ordered]@{
                 mode=$mode
                 exit_code=$process.ExitCode
                 stdout_path=$stdoutPath
                 stderr_path=$stderrPath
                 stdout_tail=(Read-LogTail $stdoutPath)
-                stderr_tail=(Read-LogTail $stderrPath)
+                stderr_tail=$stderrTail
+                failure_kind=$failureKind
             }
             $diagnosticPath=Join-Path $output ($mode+'-failure-diagnostic.json')
             Write-Json $diagnosticPath $diagnostic
-            throw ('worker_failed:'+$mode+'; diagnostic='+$diagnosticPath)
+            throw ($failureKind+':'+$mode+'; diagnostic='+$diagnosticPath)
         }
     }finally{if($null -ne $process){$process.Dispose()}}
 }

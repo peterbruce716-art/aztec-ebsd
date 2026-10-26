@@ -6,6 +6,8 @@ $root=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $scripts=Join-Path $root '03_tools/scripts'
 $nativeShell=Join-Path $env:WINDIR 'System32/WindowsPowerShell/v1.0/powershell.exe'
 $aztec='C:\Program Files\Oxford Instruments NanoAnalysis\AZtec'
+$staWorker=Join-Path $PSScriptRoot 'StaFullMapWorker.exe'
+if(-not [IO.File]::Exists($staWorker)){throw 'sta_worker_missing'}
 $out=[IO.Path]::GetFullPath([string]$request.output)
 $source=[IO.Path]::GetFullPath([string]$request.input)
 $crc=[IO.Path]::ChangeExtension($source,'.crc')
@@ -32,13 +34,20 @@ function Invoke-Stage([string]$Name,[string]$Executable,[string[]]$Arguments){
        $Arguments[1] -eq '-STA' -and $Arguments[2] -eq '-EncodedCommand')
     $info=[Diagnostics.ProcessStartInfo]::new();$info.FileName=$Executable;$info.UseShellExecute=$false;$info.CreateNoWindow=$true;$info.RedirectStandardOutput=$true;$info.RedirectStandardError=$true
     $info.StandardOutputEncoding=[Text.UTF8Encoding]::new($false);$info.StandardErrorEncoding=[Text.UTF8Encoding]::new($false)
-    foreach($a in $Arguments){$info.ArgumentList.Add($a)}
-    $entry=[ordered]@{stage=$Name;executable=$Executable;arguments=$Arguments;timeout_seconds=$request.timeout_seconds;started_utc=[DateTime]::UtcNow.ToString('o');launcher='ProcessStartInfo';framework_sta=$frameworkSta}
+    if(-not $frameworkSta){
+        foreach($a in $Arguments){$info.ArgumentList.Add($a)}
+    }
+    $entry=[ordered]@{stage=$Name;executable=$Executable;arguments=$Arguments;timeout_seconds=$request.timeout_seconds;started_utc=[DateTime]::UtcNow.ToString('o');launcher=$(if($frameworkSta){'Start-Process'}else{'ProcessStartInfo'})}
     $p=$null;$ot=$null;$et=$null;Log ('start '+$Name)
     try{
-        $p=[Diagnostics.Process]::new();$p.StartInfo=$info
-        if(-not $p.Start()){throw 'process_start_failed'}
-        $ot=$p.StandardOutput.ReadToEndAsync();$et=$p.StandardError.ReadToEndAsync()
+        if($frameworkSta){
+            $stdoutPath=$prefix+'.stdout.log';$stderrPath=$prefix+'.stderr.log'
+            $p=Start-Process -FilePath $Executable -ArgumentList @($Arguments) -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+        }else{
+            $p=[Diagnostics.Process]::new();$p.StartInfo=$info
+            if(-not $p.Start()){throw 'process_start_failed'}
+            $ot=$p.StandardOutput.ReadToEndAsync();$et=$p.StandardError.ReadToEndAsync()
+        }
         if(-not $p.WaitForExit([int]$request.timeout_seconds*1000)){$p.Kill($true);$p.WaitForExit();$entry.timed_out=$true;throw ('stage_timeout:'+ $Name)}
         $entry.exit_code=$p.ExitCode
         if($p.ExitCode -ne 0){throw ('stage_failed:'+ $Name+';exit='+$p.ExitCode+';see='+$prefix+'.stderr.log')}
@@ -49,13 +58,13 @@ function Invoke-Stage([string]$Name,[string]$Executable,[string[]]$Arguments){
     Log ('complete '+$Name)
 }
 function Native([string]$Name,[string]$Script,[hashtable]$Parameters){
-    # Keep the encoded child wrapper; the worker's current-thread STA check is
-    # authoritative because launch flags do not guarantee its apartment.
+    # Execute the native script directly on the dedicated C# STA worker thread.
     $payload=@{script=$Script;parameters=$Parameters}|ConvertTo-Json -Depth 6 -Compress
     $b=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($payload))
     $hash='function global:Get-FileHash {param([string]$LiteralPath,[string]$Algorithm="SHA256");$h=[Security.Cryptography.SHA256]::Create();$s=[IO.File]::OpenRead($LiteralPath);try{[pscustomobject]@{Hash=([BitConverter]::ToString($h.ComputeHash($s))).Replace("-","")}}finally{$s.Dispose();$h.Dispose()}};'
-    $code="`$ErrorActionPreference='Stop';[Console]::OutputEncoding=[Text.UTF8Encoding]::new(`$false);$hash `$r=([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$b'))|ConvertFrom-Json);`$a=@{};foreach(`$v in `$r.parameters.PSObject.Properties){`$a[`$v.Name]=`$v.Value}; & `$r.script @a"
-    Invoke-Stage $Name $nativeShell @('-NoProfile','-STA','-EncodedCommand',[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($code)))
+    $code="`$ErrorActionPreference='Stop';[Console]::OutputEncoding=[Text.UTF8Encoding]::new(`$false);function global:Get-FileHash { param([string]`$LiteralPath,[string]`$Algorithm='SHA256'); `$h=[Security.Cryptography.SHA256]::Create(); `$s=[IO.File]::OpenRead(`$LiteralPath); try { [pscustomobject]@{Hash=([BitConverter]::ToString(`$h.ComputeHash(`$s))).Replace('-','')} } finally { `$s.Dispose(); `$h.Dispose() } };`$r=([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$b'))|ConvertFrom-Json);`$a=@{};foreach(`$v in `$r.parameters.PSObject.Properties){`$a[`$v.Name]=`$v.Value};`$env:AZTEC_NATIVE_MAP_SCRIPT_PATH=[string]`$r.script;& `$r.script @a"
+    $workerPayload=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($code))
+    Invoke-Stage $Name $staWorker @($workerPayload)
 }
 function NativeMapWithRetry([string]$Name,[string]$Script,[hashtable]$Parameters){
     # WPF bitmap creation can fail transiently in the vendor worker before any
@@ -114,6 +123,59 @@ function NativeMapWithRetry([string]$Name,[string]$Script,[hashtable]$Parameters
     }
     throw ('native_map_attempt_failed:'+($attempts|ConvertTo-Json -Compress -Depth 6))
 }
+function Remove-NativeAttemptDirectories([object[]]$AttemptLog,[string]$SelectedOutputDirectory){
+    # The only delivered image is maps\<Metric>.bmp. Native attempt directories
+    # are temporary artifacts; remove their files and empty directories after
+    # the final BMP has passed validation. Failed jobs never call this function.
+    $removed=[Collections.Generic.List[object]]::new()
+    $selected=[IO.Path]::GetFullPath($SelectedOutputDirectory)
+    foreach($entry in @($AttemptLog)){
+        $attemptDirectory=[string]$entry.output_directory
+        if(-not $attemptDirectory){continue}
+        $attemptFull=[IO.Path]::GetFullPath($attemptDirectory)
+        if(-not [IO.Directory]::Exists($attemptFull)){continue}
+        foreach($file in @(Get-ChildItem -LiteralPath $attemptFull -File -Recurse -ErrorAction SilentlyContinue)){
+            [IO.File]::Delete($file.FullName)
+            $removed.Add([pscustomobject]@{path=$file.FullName;reason='native_temp_file_removed_after_delivery'})
+        }
+        foreach($directory in @(Get-ChildItem -LiteralPath $attemptFull -Directory -Recurse -ErrorAction SilentlyContinue | Sort-Object FullName -Descending)){
+            [IO.Directory]::Delete($directory.FullName)
+            $removed.Add([pscustomobject]@{path=$directory.FullName;reason='native_temp_directory_removed_after_delivery'})
+        }
+        [IO.Directory]::Delete($attemptFull)
+        $removed.Add([pscustomobject]@{path=$attemptFull;reason='native_temp_directory_removed_after_delivery'})
+    }
+    return @($removed)
+}
+function Remove-SuccessWorkArtifacts([string]$OutputDirectory){
+    # Successful delivery keeps only the final BMPs and manifest metadata.
+    # Failed jobs retain work artifacts for diagnosis.
+    $removed=[Collections.Generic.List[object]]::new()
+    $work=[IO.Path]::GetFullPath((Join-Path $OutputDirectory 'work'))
+    if(-not [IO.Directory]::Exists($work)){return @($removed)}
+    foreach($file in @(Get-ChildItem -LiteralPath $work -File -Force -Recurse -ErrorAction SilentlyContinue)){
+        [IO.File]::Delete($file.FullName)
+        $removed.Add([pscustomobject]@{path=$file.FullName;reason='success_diagnostic_file_removed_after_delivery'})
+    }
+    foreach($directory in @(Get-ChildItem -LiteralPath $work -Directory -Force -Recurse -ErrorAction SilentlyContinue | Sort-Object FullName -Descending)){
+        [IO.Directory]::Delete($directory.FullName)
+        $removed.Add([pscustomobject]@{path=$directory.FullName;reason='success_diagnostic_directory_removed_after_delivery'})
+    }
+    [IO.Directory]::Delete($work)
+    $removed.Add([pscustomobject]@{path=$work;reason='success_diagnostic_directory_removed_after_delivery'})
+    return @($removed)
+}
+function Remove-SuccessRuntimeArtifacts([string]$OutputDirectory){
+    $removed=[Collections.Generic.List[object]]::new()
+    foreach($name in @('.owner','render.log')){
+        $path=Join-Path $OutputDirectory $name
+        if([IO.File]::Exists($path)){
+            [IO.File]::Delete($path)
+            $removed.Add([pscustomobject]@{path=$path;reason='success_runtime_artifact_removed_after_delivery'})
+        }
+    }
+    return @($removed)
+}
 function ReadJson($p){Get-Content -LiteralPath $p -Raw -Encoding UTF8|ConvertFrom-Json}
 function ScalarCanvas($type,$point,$min,$max){
     Native ('render_'+$type) (Join-Path $scripts 'render_aztec_native_scalar_canvas.ps1') @{Metric=$type;PointBmp=$point;OutputBmp=(Join-Path $out ($type+'.bmp'));DisplayMin=$min;DisplayMax=$max;CanvasWidth=$cw;CanvasHeight=$ch;MapX=1;MapY=34;MapWidth=2733;MapHeight=$mh;MappingMode='AxisEdgeAligned'}
@@ -164,10 +226,10 @@ try{
         if([IO.File]::Exists($apiAssembly)){$manifest.production_sources+=@(@{path=$apiAssembly;sha256=Sha $apiAssembly})}
         $manifest.grid=@{width=$w;height=$h;points=$w*$h;step_x_micron=[double]$meta.GridDistX;step_y_micron=[double]$meta.GridDistY}
         $manifest.display_semantics=@{map_and_legend='AZtecCrystal MapExport';ui_culture='zh-CN';pixel_width=2734;scale_bar=$false;range='native Automatic unless explicitly supplied';ipf='unique saved BC + IPF + grain-boundaries map required'}
-        $manifest.limitations=@('Uses the installed AZtec Crystal version; no public stable SDK contract is assumed.','Full-map fidelity still requires per-sample comparison; invoking native code alone does not prove equality.','IPF requires one unambiguous saved BC/IPF/grain-boundaries map.','CPR/CRC must already be cleaned and saved; no cleanup is performed.','Same-schema same-length CPR/CRC swaps have no inherent pair identity; supply expected_crc_sha256 for provenance validation.','Native map workers retry transient WPF bitmap initialization failures in fresh STA child processes; failed attempt directories are retained.')
+        $manifest.limitations=@('Uses the installed AZtec Crystal version; no public stable SDK contract is assumed.','Full-map fidelity still requires per-sample comparison; invoking native code alone does not prove equality.','IPF requires one unambiguous saved BC/IPF/grain-boundaries map.','CPR/CRC must already be cleaned and saved; no cleanup is performed.','Same-schema same-length CPR/CRC swaps have no inherent pair identity; supply expected_crc_sha256 for provenance validation.','Native map workers retry transient WPF bitmap initialization failures in fresh STA child processes; failed attempt reports and diagnostics are retained, while all native-attempt BMPs are removed after the final delivered BMP is copied.')
         foreach($type in $types){
             try{
-                $nativeOut=Join-Path $out ('work/native_'+$type)
+                $nativeOut=Join-Path $out ('native_'+$type)
                 $parameters=@{CprPath=$source;OutputDirectory=$nativeOut;Metric=$type;PixelWidth=2734;AztecRoot=$aztec}
                 $rangeKey=$type.ToLowerInvariant()
                 if($templateConfig.ContainsKey($rangeKey)){
@@ -198,7 +260,9 @@ try{
                 if($targetInfo.Length -ne $nativeInfo.Length){throw 'copied_output_bytes_mismatch'}
                 $targetSha=Sha $target
                 if($targetSha -ne $report.sha256){throw 'copied_output_hash_mismatch'}
-                $manifest.outputs+=@(@{type=$type;path=$target;sha256=$targetSha;pixel_sha256=$report.saved_pixel_snapshot.sha256;pixel_format=$report.saved_pixel_snapshot.format;bytes=$targetInfo.Length;status='completed';width=$report.width;height=$report.height;native_report=$reportPath;native_report_sha256=Sha $reportPath;native_attempts=$nativeAttempts;native_attempt_log=$nativeAttempt.AttemptLog;limits=$report.limits_for_drawing})
+                $reportSha=Sha $reportPath
+                $removedNativeAttemptDirectories=@(Remove-NativeAttemptDirectories $nativeAttempt.AttemptLog $nativeOut)
+                $manifest.outputs+=@(@{type=$type;path=$target;sha256=$targetSha;pixel_sha256=$report.saved_pixel_snapshot.sha256;pixel_format=$report.saved_pixel_snapshot.format;bytes=$targetInfo.Length;status='completed';width=$report.width;height=$report.height;native_report=$reportPath;native_report_sha256=$reportSha;native_report_status='removed_after_delivery';native_report_snapshot=$report;native_attempts=$nativeAttempts;native_attempt_log=$nativeAttempt.AttemptLog;native_backup_policy=@{retained_count=0;removed_native_attempt_directories=$removedNativeAttemptDirectories};limits=$report.limits_for_drawing})
                 Log ('output_complete '+$type)
             }catch{
                 $manifest.outputs+=@(@{type=$type;status='failed';error=$_.Exception.Message})
@@ -302,7 +366,13 @@ try{
     $ok=@($manifest.outputs|Where-Object status -eq 'completed').Count
     $manifest.status=if($ok -eq $types.Count){'completed'}elseif($ok -gt 0){'partial_failed'}else{'failed'}
     $manifest.native_data_status='see_per_type_results'
-    $manifest.native_artifacts=@(Get-ChildItem -LiteralPath (Join-Path $out 'work') -File -Recurse | Where-Object {$_.Extension -in '.bmp','.csv','.json'} | ForEach-Object {@{path=$_.FullName;sha256=Sha $_.FullName;bytes=$_.Length}})
+    if($manifest.status -eq 'completed'){
+        $manifest.removed_success_work_artifacts=@(Remove-SuccessWorkArtifacts $out)
+        $manifest.removed_success_runtime_artifacts=@(Remove-SuccessRuntimeArtifacts $out)
+        $manifest.native_artifacts=@()
+    }else{
+        $manifest.native_artifacts=@(Get-ChildItem -LiteralPath (Join-Path $out 'work') -File -Recurse | Where-Object {$_.Extension -in '.bmp','.csv','.json'} | ForEach-Object {@{path=$_.FullName;sha256=Sha $_.FullName;bytes=$_.Length}})
+    }
 }catch{
     $manifest.status='failed';$manifest.errors+=@(@{stage='validation_or_pipeline';error=$_.Exception.Message})
     if(-not [IO.Directory]::Exists($out)){[IO.Directory]::CreateDirectory($out)|Out-Null}

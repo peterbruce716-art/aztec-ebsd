@@ -5,7 +5,14 @@ param(
 
 $ErrorActionPreference = 'Stop'
 if (-not [IO.File]::Exists($FrameworkHost)) { throw "framework_host_missing:$FrameworkHost" }
-$probe = '$ProgressPreference="SilentlyContinue";$o=[ordered]@{edition=[string]$PSVersionTable.PSEdition;apartment=[string][Threading.Thread]::CurrentThread.GetApartmentState()};$o|ConvertTo-Json -Compress'
+$probe = '$ProgressPreference="SilentlyContinue";' +
+    '$rs=[RunspaceFactory]::CreateRunspace();' +
+    '$rs.ApartmentState=[Threading.ApartmentState]::STA;' +
+    '$rs.ThreadOptions=[System.Management.Automation.Runspaces.PSThreadOptions]::UseNewThread;' +
+    '$rs.Open();$ps=[PowerShell]::Create();$ps.Runspace=$rs;' +
+    '[void]$ps.AddScript(''$o=[ordered]@{edition=[string]$PSVersionTable.PSEdition;apartment=[string][Threading.Thread]::CurrentThread.GetApartmentState();apartment_value=[int][Threading.Thread]::CurrentThread.GetApartmentState()};$o|ConvertTo-Json -Compress'');' +
+    '$out=$ps.Invoke();foreach($item in $out){[Console]::Out.WriteLine([string]$item)};' +
+    'if($ps.HadErrors){exit 23};$ps.Dispose();$rs.Dispose()'
 $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($probe))
 $info = [Diagnostics.ProcessStartInfo]::new()
 $info.FileName = $FrameworkHost
@@ -37,7 +44,7 @@ try {
 if ($exit -ne 0) { throw "framework_probe_failed:exit=$exit;stderr=$stderr" }
 $value = $stdout | ConvertFrom-Json
 if ($value.edition -ne 'Desktop' -or $value.apartment -ne 'STA') {
-    throw "framework_probe_wrong_thread:edition=$($value.edition);apartment=$($value.apartment)"
+	throw "framework_probe_wrong_thread:edition=$($value.edition);apartment=$($value.apartment);apartment_value=$($value.apartment_value)"
 }
 [pscustomobject]@{
     status = 'passed'

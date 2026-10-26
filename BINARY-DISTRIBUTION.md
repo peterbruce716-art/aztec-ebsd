@@ -1,9 +1,10 @@
 # Included algorithms and binaries
 
-The repository includes the algorithm adapters and the four helper binaries built from the checked-in C# sources:
+The repository includes the algorithm adapters and the five helper binaries built from the checked-in C# sources:
 
 - `assets/aztec-native-toolchain/03_tools/aztec_exporter/AZtecBmpExporter.exe`
 - `assets/aztec-native-toolchain/03_tools/aztec_exporter/AZtecBmpExporter.dll`
+- `assets/aztec-native-toolchain/03_tools/aztec_exporter/StaFullMapWorker.exe`
 - `assets/aztec-native-toolchain/03_tools/scripts/AztecNativeIpfConsole.exe`
 - `assets/aztec-native-toolchain/03_tools/scripts/AztecNativeIpfKeyProbeNoDispose.exe`
 

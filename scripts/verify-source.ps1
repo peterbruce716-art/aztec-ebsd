@@ -19,7 +19,8 @@ foreach ($relative in @(
     'assets/aztec-native-toolchain/03_tools/aztec_exporter/AZtecBmpExporter.exe',
     'assets/aztec-native-toolchain/03_tools/aztec_exporter/AZtecBmpExporter.dll',
     'assets/aztec-native-toolchain/03_tools/scripts/AztecNativeIpfConsole.exe',
-    'assets/aztec-native-toolchain/03_tools/scripts/AztecNativeIpfKeyProbeNoDispose.exe'
+    'assets/aztec-native-toolchain/03_tools/scripts/AztecNativeIpfKeyProbeNoDispose.exe',
+    'assets/aztec-native-toolchain/03_tools/aztec_exporter/StaFullMapWorker.exe'
 )) { [void]$generated.Add($relative) }
 $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 foreach ($entry in $manifest.files) {

@@ -1,11 +1,16 @@
 param(
     [Parameter(Mandatory=$true)][string]$InputRoot,
     [string[]]$ExcludeDirectoryName = @(),
+    [string]$IncludePathRegex = '.',
     [string]$ExcludeFileRegex = '(?i)codex_backup|(^|_)cleaned\.cpr$',
     [ValidateRange(1,10)][int]$MaxConcurrency = 10,
     [ValidateRange(1,2)][int]$CleanupConcurrency = 2,
     [ValidateRange(0,100000)][int]$Limit = 0,
+    [ValidateRange(1,200)][int]$MaxZeroCycles = 100,
     [string]$RunId = (Get-Date -Format 'yyyyMMdd_HHmmss'),
+    [string]$IncludeSourceListPath = '',
+    [string]$CorruptedManifestPath = '',
+    [switch]$IncludeRawDataCorrupted,
     [ValidateRange(30,3600)][int]$StageTimeoutSeconds = 3600,
     [switch]$DryRun,
     [string]$SkillRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -14,6 +19,7 @@ param(
 $ErrorActionPreference = 'Stop'
 if ($PSVersionTable.PSEdition -ne 'Core') { throw 'requires_powershell_7_core' }
 if ($RunId -notmatch '^[A-Za-z0-9_-]+$') { throw 'run_id_must_be_path_safe' }
+try { [regex]::new($IncludePathRegex) | Out-Null } catch { throw 'include_path_regex_invalid' }
 $sourceRoot = (Resolve-Path -LiteralPath $InputRoot).Path.TrimEnd([IO.Path]::DirectorySeparatorChar)
 $cleanupRunner = Join-Path $SkillRoot 'scripts/native-cleanup/run_aztec_native_cleanup.ps1'
 $cleanupVerifier = Join-Path $SkillRoot 'scripts/native-cleanup/verify_aztec_native_cleanup_run_optimized.ps1'
@@ -27,6 +33,52 @@ if ($toolchainResult.status -ne 'passed' -or -not $toolchainResult.environment.f
     throw 'toolchain_or_framework_sta_preflight_failed'
 }
 
+function Read-RawDataCorruptedManifest([string]$Path) {
+    $map = @{}
+    if (-not $Path -or -not [IO.File]::Exists($Path)) { return $map }
+    $document = Get-Content -Raw -Encoding UTF8 -LiteralPath $Path | ConvertFrom-Json
+    foreach ($entry in @($document.entries)) {
+        if (-not $entry.source) { continue }
+        $map[[IO.Path]::GetFullPath([string]$entry.source)] = $entry
+    }
+    return $map
+}
+
+if ($CorruptedManifestPath) {
+    if (-not [IO.File]::Exists($CorruptedManifestPath)) { throw "corrupted_manifest_missing:$CorruptedManifestPath" }
+    $corruptedManifestPath = (Resolve-Path -LiteralPath $CorruptedManifestPath).Path
+} else {
+    $manifestCandidates = @(
+        (Join-Path $sourceRoot 'raw-data-corrupted.json'),
+        (Join-Path $sourceRoot '.aztec_fresh_batch_logs\raw-data-corrupted.json')
+    )
+    $foundManifest = @($manifestCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1)
+    $corruptedManifestPath = if ($foundManifest.Count -gt 0) { [string]$foundManifest[0] } else { $null }
+}
+$rawDataCorrupted = Read-RawDataCorruptedManifest $corruptedManifestPath
+
+$sourceList = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+$sourceListPath = $null
+if ($IncludeSourceListPath) {
+    if (-not [IO.File]::Exists($IncludeSourceListPath)) { throw "source_list_missing:$IncludeSourceListPath" }
+    $sourceListPath = (Resolve-Path -LiteralPath $IncludeSourceListPath).Path
+    foreach ($line in (Get-Content -Encoding UTF8 -LiteralPath $sourceListPath)) {
+        $trimmed = ([string]$line).Trim()
+        if (-not $trimmed -or $trimmed.StartsWith('#')) { continue }
+        $full = [IO.Path]::GetFullPath($trimmed)
+        if ([IO.Path]::GetExtension($full) -ine '.cpr' -or -not [IO.File]::Exists($full)) {
+            throw "source_list_entry_invalid:$trimmed"
+        }
+        $rootPrefix = $sourceRoot + [IO.Path]::DirectorySeparatorChar
+        if (-not $full.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "source_list_entry_outside_input_root:$trimmed"
+        }
+        [void]$sourceList.Add($full)
+    }
+    if ($sourceList.Count -eq 0) { throw 'source_list_empty' }
+}
+$sourceListEnabled = $sourceList.Count -gt 0
+
 $excludedNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 foreach ($name in $ExcludeDirectoryName) { [void]$excludedNames.Add($name) }
 $candidates = @(Get-ChildItem -LiteralPath $sourceRoot -Recurse -File -Filter '*.cpr' -ErrorAction Stop |
@@ -37,9 +89,30 @@ $candidates = @(Get-ChildItem -LiteralPath $sourceRoot -Recurse -File -Filter '*
         foreach ($segment in $segments[0..([Math]::Max(0,$segments.Length-2))]) {
             if ($excludedNames.Contains($segment) -or $segment -match '(?i)^AZtec_v7_fresh_') { $excludedPath = $true; break }
         }
-        -not $excludedPath -and $_.Name -notmatch $ExcludeFileRegex
+        $sourceFullPath = [IO.Path]::GetFullPath($_.FullName)
+        $sourceSelected = (-not $sourceListEnabled) -or $sourceList.Contains($sourceFullPath)
+        $rawCorruptedExcluded = (-not $IncludeRawDataCorrupted) -and $rawDataCorrupted.ContainsKey($sourceFullPath)
+        -not $excludedPath -and $sourceSelected -and (-not $rawCorruptedExcluded) -and $relative -match $IncludePathRegex -and $_.Name -notmatch $ExcludeFileRegex
     } | Sort-Object FullName)
 if ($Limit -gt 0) { $candidates = @($candidates | Select-Object -First $Limit) }
+
+function Assert-InputPair([string]$SourcePath) {
+    $crc = [IO.Path]::ChangeExtension($SourcePath, '.crc')
+    if (-not [IO.File]::Exists($crc)) { throw 'matching_crc_missing' }
+    $header = [IO.File]::ReadAllText($SourcePath)
+    $pointsMatch = [regex]::Match($header, '(?m)^NoOfPoints=(\d+)\r?$')
+    $xMatch = [regex]::Match($header, '(?m)^xCells=(\d+)\r?$')
+    $yMatch = [regex]::Match($header, '(?m)^yCells=(\d+)\r?$')
+    if (-not $pointsMatch.Success -or -not $xMatch.Success -or -not $yMatch.Success) { throw 'cpr_geometry_header_missing' }
+    $points = [int64]$pointsMatch.Groups[1].Value
+    $grid = [int64]$xMatch.Groups[1].Value * [int64]$yMatch.Groups[1].Value
+    if ($points -ne $grid) { throw ('cpr_geometry_mismatch:points=' + $points + ';grid=' + $grid) }
+    $crcBytes = (Get-Item -LiteralPath $crc).Length
+    $expectedBytes = $points * 25
+    if ($crcBytes -ne $expectedBytes) {
+        throw ('cpr_crc_length_mismatch:expected=' + $expectedBytes + ';actual=' + $crcBytes)
+    }
+}
 
 $runRootName = 'AZtec_v7_fresh_' + $RunId
 $runLog = Join-Path $sourceRoot ('.aztec_fresh_batch_logs\' + $RunId)
@@ -52,7 +125,12 @@ if ($DryRun) {
         status = 'dry_run'
         source_root = $sourceRoot
         run_id = $RunId
+        include_path_regex = $IncludePathRegex
+        source_list_path = $sourceListPath
+        source_list_count = $sourceList.Count
         candidates = $candidates.Count
+        corrupted_manifest_path = $corruptedManifestPath
+        excluded_raw_data_corrupted = if ($IncludeRawDataCorrupted) { 0 } else { @($rawDataCorrupted.Keys).Count }
         paired = @($candidates | Where-Object { Test-Path -LiteralPath ([IO.Path]::ChangeExtension($_.FullName,'.crc')) }).Count
         skipped_missing_crc = @($candidates | Where-Object { -not (Test-Path -LiteralPath ([IO.Path]::ChangeExtension($_.FullName,'.crc'))) }).Count
         existing_targets = $existing.Count
@@ -63,11 +141,26 @@ if ($DryRun) {
 }
 [void][IO.Directory]::CreateDirectory($runLog)
 $summaryPath = Join-Path $runLog 'batch-results.jsonl'
+$activeLockPath = Join-Path $runLog 'batch-active.json'
+[IO.File]::WriteAllText($activeLockPath,([ordered]@{
+    status='running'
+    run_id=$RunId
+    pid=$PID
+    started_utc=[DateTime]::UtcNow.ToString('o')
+    source_root=$sourceRoot
+    candidates=$candidates.Count
+}|ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($true))
 
 Write-Output (([ordered]@{
     status='started'
     source_root=$sourceRoot
     run_id=$RunId
+    include_path_regex=$IncludePathRegex
+    source_list_path=$sourceListPath
+    source_list_count=$sourceList.Count
+    corrupted_manifest_path=$corruptedManifestPath
+    include_raw_data_corrupted=[bool]$IncludeRawDataCorrupted
+    excluded_raw_data_corrupted=if ($IncludeRawDataCorrupted) { 0 } else { @($rawDataCorrupted.Keys).Count }
     candidates=$candidates.Count
     max_concurrency=$MaxConcurrency
     cleanup_concurrency=$CleanupConcurrency
@@ -89,6 +182,17 @@ $candidates | ForEach-Object -Parallel {
         [void][IO.Directory]::CreateDirectory($sampleRoot)
         [IO.File]::WriteAllText((Join-Path $sampleRoot 'fresh-batch-state.json'),([ordered]@{status='running';source=$source;crc=$crc;started_utc=[DateTime]::UtcNow.ToString('o');run_id=$using:runId}|ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($true))
         if (-not [IO.File]::Exists($crc)) { $row.status='skipped_missing_crc'; throw 'matching_crc_missing' }
+        $header = [IO.File]::ReadAllText($source)
+        $pointsMatch = [regex]::Match($header, '(?m)^NoOfPoints=(\d+)\r?$')
+        $xMatch = [regex]::Match($header, '(?m)^xCells=(\d+)\r?$')
+        $yMatch = [regex]::Match($header, '(?m)^yCells=(\d+)\r?$')
+        if (-not $pointsMatch.Success -or -not $xMatch.Success -or -not $yMatch.Success) { throw 'cpr_geometry_header_missing' }
+        $points = [int64]$pointsMatch.Groups[1].Value
+        $grid = [int64]$xMatch.Groups[1].Value * [int64]$yMatch.Groups[1].Value
+        if ($points -ne $grid) { throw ('cpr_geometry_mismatch:points=' + $points + ';grid=' + $grid) }
+        $crcBytes = (Get-Item -LiteralPath $crc).Length
+        $expectedBytes = $points * 25
+        if ($crcBytes -ne $expectedBytes) { throw ('cpr_crc_length_mismatch:expected=' + $expectedBytes + ';actual=' + $crcBytes) }
         $sourceCprHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $source).Hash
         $sourceCrcHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $crc).Hash
 
@@ -98,7 +202,7 @@ $candidates | ForEach-Object -Parallel {
             $heldCleanup = $cleanupSlot.WaitOne([TimeSpan]::FromHours(12))
             if (-not $heldCleanup) { throw 'native_cleanup_slot_timeout' }
             if (Test-Path -LiteralPath $cleanupDir) { throw 'fresh_cleanup_directory_already_exists' }
-            & $using:cleanupRunner -CprPath $source -OutputDirectory $cleanupDir -PersistencePolicy NativeSave -AuditMode Fast -MaxZeroCycles 50 -StageTimeoutSeconds $using:StageTimeoutSeconds | Out-Null
+            & $using:cleanupRunner -CprPath $source -OutputDirectory $cleanupDir -PersistencePolicy NativeSave -AuditMode Fast -MaxZeroCycles $using:MaxZeroCycles -StageTimeoutSeconds $using:StageTimeoutSeconds | Out-Null
         } finally {
             if ($heldCleanup) { [void]$cleanupSlot.Release() }
             $cleanupSlot.Dispose()
@@ -120,8 +224,8 @@ $candidates | ForEach-Object -Parallel {
         $cleanedCpr = Join-Path $cleanupDir 'cleaned.cpr'
         $cleanedCrc = [IO.Path]::ChangeExtension($cleanedCpr,'.crc')
         if (-not [IO.File]::Exists($cleanedCpr) -or -not [IO.File]::Exists($cleanedCrc)) { throw 'verified_cleaned_pair_missing' }
-        $expectedCrcHash = [string]$cleanupReport.worker.serialized_errorcode.derived_c5_sha256
-        if (-not $expectedCrcHash) { $expectedCrcHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $cleanedCrc).Hash }
+        # The exporter provenance gate compares the complete cleaned CRC file hash.
+        $expectedCrcHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $cleanedCrc).Hash
 
         $exportMutex = [Threading.Mutex]::new($false,'Global\AztecEbsdNativeBmpExporter')
         $heldExport = $false
@@ -147,8 +251,13 @@ $candidates | ForEach-Object -Parallel {
             if ($entry.Count -ne 1 -or $entry[0].status -ne 'completed') { throw "native_map_invalid:$type" }
             $bmp = Join-Path $mapsDir ($type + '.bmp')
             if (-not [IO.File]::Exists($bmp) -or (Get-FileHash -Algorithm SHA256 -LiteralPath $bmp).Hash -ne $entry[0].sha256) { throw "native_map_hash_mismatch:$type" }
-            if (-not $entry[0].native_report) { throw "native_report_missing:$type" }
-            $nativeReport = Get-Content -Raw -Encoding UTF8 -LiteralPath $entry[0].native_report | ConvertFrom-Json
+            if ($entry[0].native_report_status -eq 'removed_after_delivery') {
+                if (-not $entry[0].native_report_snapshot) { throw "native_report_snapshot_missing:$type" }
+                $nativeReport = $entry[0].native_report_snapshot
+            } else {
+                if (-not $entry[0].native_report -or -not [IO.File]::Exists($entry[0].native_report)) { throw "native_report_missing:$type" }
+                $nativeReport = Get-Content -Raw -Encoding UTF8 -LiteralPath $entry[0].native_report | ConvertFrom-Json
+            }
             if ($nativeReport.saved_pixels_match_native -ne $true) { throw "saved_pixels_not_verified:$type" }
             $verifiedTypes.Add($type)
         }
@@ -168,6 +277,7 @@ $candidates | ForEach-Object -Parallel {
     } catch {
         if ($row.status -ne 'skipped_missing_crc') { $row.status='failed' }
         $row.error=$_.Exception.Message
+        $row.failure_kind = if ($row.error -match 'cpr_crc_length_mismatch|cpr_geometry_mismatch|cpr_geometry_header_missing|matching_crc_missing') { 'input_pair_mismatch' } elseif ($row.error -match 'STA|Geometry|memory|Not enough memory|worker_exit') { 'transient_native_worker' } elseif ($row.error -match 'render_manifest|native_map|bmp_exporter') { 'export' } elseif ($row.error -match 'readback|cleanup_verifier') { 'verification' } else { 'unknown' }
     }
     [IO.File]::WriteAllText((Join-Path $sampleRoot 'fresh-batch-state.json'),([ordered]@{status=$row.status;source=$source;crc=$crc;finished_utc=[DateTime]::UtcNow.ToString('o');error=$row.error;cleanup_directory=$cleanupDir;maps_directory=$mapsDir}|ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($true))
     $resultPath = Join-Path $sampleRoot 'fresh-batch-result.json'
@@ -185,12 +295,16 @@ $candidates | ForEach-Object -Parallel {
         source_root = $sourceRoot
         run_id = $RunId
         candidates = $candidates.Count
+        corrupted_manifest_path = $corruptedManifestPath
+        excluded_raw_data_corrupted = if ($IncludeRawDataCorrupted) { 0 } else { @($rawDataCorrupted.Keys).Count }
+        raw_data_corrupted_sources = if ($IncludeRawDataCorrupted) { @() } else { @($rawDataCorrupted.Keys | Sort-Object) }
         recorded_results = if (Test-Path -LiteralPath $summaryPath) { @(Get-Content -Encoding UTF8 -LiteralPath $summaryPath | Where-Object { $_.Trim() }).Count } else { 0 }
         error = $_.Exception.Message
         utc = [DateTime]::UtcNow.ToString('o')
         old_results_reused = $false
     }
     [IO.File]::WriteAllText($interruptedPath,($interrupted|ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($true))
+    if (Test-Path -LiteralPath $activeLockPath) { Remove-Item -LiteralPath $activeLockPath -Force -ErrorAction SilentlyContinue }
     throw
 }
 
@@ -198,14 +312,19 @@ $rows = @(Get-Content -Encoding UTF8 -LiteralPath $summaryPath | ForEach-Object 
 $summary = [ordered]@{
     status = if (@($rows | Where-Object status -ne 'completed').Count -eq 0) { 'completed' } else { 'completed_with_failures_or_skips' }
     candidates = $candidates.Count
+    max_zero_cycles = $MaxZeroCycles
     completed = @($rows | Where-Object status -eq 'completed').Count
     failed = @($rows | Where-Object status -eq 'failed').Count
     skipped_missing_crc = @($rows | Where-Object status -eq 'skipped_missing_crc').Count
     unrecorded = $candidates.Count - $rows.Count
+    corrupted_manifest_path = $corruptedManifestPath
+    excluded_raw_data_corrupted = if ($IncludeRawDataCorrupted) { 0 } else { @($rawDataCorrupted.Keys).Count }
+    raw_data_corrupted_sources = if ($IncludeRawDataCorrupted) { @() } else { @($rawDataCorrupted.Keys | Sort-Object) }
     final_zero_solutions_nonzero = @($rows | Where-Object { $_.status -eq 'completed' -and ($_.final_zero_solutions -ne 0 -or $_.readback_zero_solutions -ne 0) }).Count
     old_results_reused = $false
     summary_path = $summaryPath
 }
 $summaryPathJson = Join-Path $runLog 'batch-summary.json'
 [IO.File]::WriteAllText($summaryPathJson,($summary|ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($true))
+if (Test-Path -LiteralPath $activeLockPath) { Remove-Item -LiteralPath $activeLockPath -Force -ErrorAction SilentlyContinue }
 $summary | ConvertTo-Json -Depth 8

@@ -21,11 +21,12 @@ try {
         Check ('syntax:' + [IO.Path]::GetRelativePath($root, $scriptFile.FullName).Replace('\', '/')) ($parseErrors.Count -eq 0)
     }
     $build = & (Join-Path $root 'scripts/build-toolchain.ps1') | ConvertFrom-Json
-    Check 'build_four_targets' ($build.status -eq 'built' -and $build.targets -eq 4)
+    Check 'build_five_targets' ($build.status -eq 'built' -and $build.targets -eq 5)
     $toolchain = & (Join-Path $root 'scripts/verify-toolchain.ps1') -SkipEnvironment | ConvertFrom-Json
     $requiredBinaries = @(
         'assets/aztec-native-toolchain/03_tools/aztec_exporter/AZtecBmpExporter.exe',
         'assets/aztec-native-toolchain/03_tools/aztec_exporter/AZtecBmpExporter.dll',
+        'assets/aztec-native-toolchain/03_tools/aztec_exporter/StaFullMapWorker.exe',
         'assets/aztec-native-toolchain/03_tools/scripts/AztecNativeIpfConsole.exe',
         'assets/aztec-native-toolchain/03_tools/scripts/AztecNativeIpfKeyProbeNoDispose.exe'
     )

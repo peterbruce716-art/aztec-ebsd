@@ -1,7 +1,7 @@
 # Notices
 
 This repository contains original PowerShell and C# integration, validation, and
-bitmap-comparison code, plus four binaries compiled from those sources. It does
+bitmap-comparison code, plus five binaries compiled from those sources. It does
 not include Oxford Instruments AZtec Crystal, `core.ebsd.dll`, vendor
 assemblies, sample CPR/CRC/CTF data, or reference images.
 

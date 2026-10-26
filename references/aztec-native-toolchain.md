@@ -2,7 +2,7 @@
 
 ## 包内容与运行环境
 
-`../assets/aztec-native-toolchain` 保留公开包相对结构：`03_tools/aztec_exporter` 放主 EXE/DLL、源码和 worker；`03_tools/scripts` 放自有 helper、测试和诊断；`p47_baseline/P47BaselineMetrics.cs` 为独立 RGB 比较器。`../scripts/verify-toolchain.ps1` 校验 `toolchain-manifest.json` 中每个导出工具链文件的字节数、哈希与环境，并按技能根的 `runtime-manifest.json` 覆盖核心降噪脚本、技能入口和当前说明文档。清单核对是本地文件完整性检查，不是数字签名或来源认证。
+`../assets/aztec-native-toolchain` 保留公开包相对结构：`03_tools/aztec_exporter` 放主 EXE/DLL、源码和 worker；`03_tools/scripts` 放自有 helper、测试和诊断；`aztec_bmp_compare/p46_ipf_overlay` 放参数化的 BC 审计和兼容 IPF 合成依赖；`p47_baseline/P47BaselineMetrics.cs` 为独立 RGB 比较器。`../scripts/verify-toolchain.ps1` 校验 `toolchain-manifest.json` 中每个导出工具链文件的字节数、哈希与环境，并按技能根的 `runtime-manifest.json` 覆盖核心降噪脚本、技能入口和当前说明文档。清单核对是本地文件完整性检查，不是数字签名或来源认证。
 
 不要拆走两个主二进制。不要把 vendor 程序集、原始 CPR/CRC、参考 BMP 或历史输出混入技能。原有 helper EXE 按已验收字节保留，`build.ps1 -IncludeDll` 只重建主 EXE/DLL，不重建 helper；不能假设旧 helper 源码与已验收二进制完全对应。
 
