@@ -171,8 +171,8 @@
     },
     {
       "relative_path": "references/aztec-native-cleanup.md",
-      "sha256": "C08182A144F9E09E4481A428FD21F53B5ADDABA57AFBF7B1DEE965279BC8A0AD",
-      "bytes": 10755
+      "sha256": "DA1D9238ECBE391459162B01DD353B5BF034234A1A9FAB31C2FE9945CCC76067",
+      "bytes": 10585
     },
     {
       "relative_path": "references/aztec-native-toolchain.md",
@@ -256,8 +256,8 @@
     },
     {
       "relative_path": "scripts/retry_failed_aztec_native_batch_parallel.ps1",
-      "sha256": "64FF2E84D349C62E1502F8E652577A6BE481DA263F7668164A7854F2E3849E16",
-      "bytes": 30759
+      "sha256": "6EF2F436BBFFB449BC757D3AE58EC34E4E6426148149398D41A47CCFD34C774A",
+      "bytes": 30733
     },
     {
       "relative_path": "scripts/run_aztec_native_fresh_batch_inproc.ps1",
@@ -286,8 +286,8 @@
     },
     {
       "relative_path": "scripts/verify-toolchain.ps1",
-      "sha256": "FCD01A61ABDCF48003A2DC2CAC9F8375059B0415E1255CACC5564D641EE9DD6B",
-      "bytes": 8689
+      "sha256": "DF254CF39B4F2019CB909C1805C9CBB626EC4018D08B9701DC33D6CCF89E39DB",
+      "bytes": 9206
     },
     {
       "relative_path": "SKILL.md",

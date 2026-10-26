@@ -117,9 +117,16 @@ if(-not $SkipEnvironment){
     $environment.powershell_core=[string]$PSVersionTable.PSVersion
     $environment.architecture=[Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString()
     if($environment.architecture -ne 'X64'){throw 'requires_x64_host'}
-    $staProbe="if (`$PSVersionTable.PSEdition -ne 'Desktop') { exit 21 }; if ([Threading.Thread]::CurrentThread.GetApartmentState() -ne [Threading.ApartmentState]::STA) { exit 22 }; exit 0"
+    $staProbe = '$ErrorActionPreference=''Stop'';' +
+        '$rs=[RunspaceFactory]::CreateRunspace();' +
+        '$rs.ApartmentState=[Threading.ApartmentState]::STA;' +
+        '$rs.ThreadOptions=[System.Management.Automation.Runspaces.PSThreadOptions]::UseNewThread;' +
+        '$rs.Open();$ps=[PowerShell]::Create();$ps.Runspace=$rs;' +
+        '[void]$ps.AddScript(''if ($PSVersionTable.PSEdition -ne "Desktop") { exit 21 }; if ([Threading.Thread]::CurrentThread.GetApartmentState() -ne [Threading.ApartmentState]::STA) { exit 22 }; exit 0'');' +
+        '$async=$ps.BeginInvoke();$null=$ps.EndInvoke($async);' +
+        'if($ps.HadErrors){exit 23};$ps.Dispose();$rs.Dispose();exit 0'
     $staProbeEncoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($staProbe))
-    $staProbeExit=Invoke-ChildExitCode $framework @('-NoProfile','-STA','-EncodedCommand',$staProbeEncoded)
+    $staProbeExit=Invoke-ChildExitCode $framework @('-NoProfile','-NonInteractive','-STA','-EncodedCommand',$staProbeEncoded)
     if($staProbeExit -ne 0){throw ('framework_sta_preflight_failed:exit=' + $staProbeExit + ';expected=Desktop|STA')}
     $environment.framework_sta_worker_passed=$true
     $exe=Join-Path $bundleRoot '03_tools/aztec_exporter/AZtecBmpExporter.exe'

@@ -17,7 +17,7 @@
 
 ### 小连通晶粒与野尖峰上限
 
-当前已验证的 AZtec Crystal 5.1.7829.1 原生枚举 `WildSpikeRemovalMaximumPixelSize` 只提供 `OnePixel`、`TwoPixels`、`ThreePixels`、`FourPixels` 四档；本机 API 探针保存在工作区 `03_tools/aztec_component_api_probe.txt`。本配方将 `FourPixels` 作为最大候选连通晶粒尺寸，因此不超过4 pixels 的小连通晶粒进入原生 wild-spike 候选范围；5 pixels 及以上不由该阈值处理。该阈值此前未显式设置，清理报告记录的默认值为 `OnePixel`，是小连通噪点漏过的原因。
+当前已验证的 AZtec Crystal 5.1.7829.1 原生枚举 `WildSpikeRemovalMaximumPixelSize` 只提供 `OnePixel`、`TwoPixels`、`ThreePixels`、`FourPixels` 四档。本配方将 `FourPixels` 作为最大候选连通晶粒尺寸，因此不超过4 pixels 的小连通晶粒进入原生 wild-spike 候选范围；5 pixels 及以上不由该阈值处理。该阈值此前未显式设置，清理报告记录的默认值为 `OnePixel`，是小连通噪点漏过的原因。
 
 按 AZtec 原生语义，尺寸上限只是候选筛选之一：Wild Spike Removal 还要求候选晶粒由一个其他晶粒包围，并按附近候选取向的总错配度选择替代取向。因此，“≤4 pixels 视为噪音”在本配方中表示进入原生噪点判据，不代表地图边缘、跨相边界或由多个晶粒包围的所有小区域都会被强制改写。独立 `Wild Spike Removal` 恰好执行一次；五轮 `Auto Clean-Up` 序列中的 WildSpikeRemoval 设置也显式设为 `FourPixels`，并由运行报告和验收器复核。每轮 Auto Clean-Up 调用均使用上一轮返回的原生 `IDataset` 作为输入，报告记录数据集身份链以供验收。
 
@@ -56,7 +56,7 @@ $skillRoot=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 
 两种模式都保留1e-5的符号对齐四元数分量精度门，但参考对象须与策略相符：NativeSave核对序列化Euler预测状态，FilteredQuaternion核对临时滤波取向。预测与实际规范化四元数及独立读回仍逐字段、逐字节核对；不得把临时滤波取向与原生Euler保存状态的真实差异当成浮点误差，也不得删掉精度门。
 
-本次默认变更来源于真实保存差异诊断，不通过调色标降低角度。相同配方的样品2实验仅切换保存策略，KAM对改进MAE由0.198566°降至0.002705°、GOS由0.151696°降至0.015197°。这些是复现误差，不是物理准确性证据。已有改进数据的尖峰/Auto/Kuwahara次数逐样品不同于固定1/5/1配方；默认模式不承诺严格重放这些历史，不能为消除剩余差异盲目增加滤波次数。
+本次默认变更来源于保存差异诊断，不通过调色标降低角度。任何历史误差数字都只属于对应数据集的复现记录，不是物理准确性证据。已有数据的尖峰、Auto Clean 和 Kuwahara 次数可能不同于固定1/5/1配方；默认模式不承诺严格重放历史结果，不能为消除剩余差异盲目增加滤波次数。
 
 清理通过不代表原生地图整图等同：`NativeFullMapFidelity=not_accepted`仍保持。清理后才导出IPF/KAM/GOS；不拿其他数据状态的图作数值一致性证据。
 

@@ -295,8 +295,8 @@ function Invoke-One([string]$Source, [int]$RetryIndex, [int]$OriginalIndex) {
         if ($null -eq $maps) {
             $bmpDir = New-UniqueDirectory $parent ($base + '_native_bmp_retry')
             $result.bmp_directory = $bmpDir
-            $crcHash = [string]$clean.Report.worker.serialized_errorcode.derived_c5_sha256
-            if (-not $crcHash) { $crcHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $clean.Crc).Hash }
+            # The exporter provenance gate compares the complete cleaned CRC file hash.
+            $crcHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $clean.Crc).Hash
             $exportMutex = [Threading.Mutex]::new($false, 'Global\AztecEbsdNativeBmpExporter')
             $hasMutex = $false
             try {
