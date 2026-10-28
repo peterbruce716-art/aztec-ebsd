@@ -28,9 +28,13 @@ $toolchainVerifier = Join-Path $SkillRoot 'scripts/verify-toolchain.ps1'
 foreach ($path in @($cleanupRunner,$cleanupVerifier,$exporter,$toolchainVerifier)) {
     if (-not [IO.File]::Exists($path)) { throw "required_tool_missing:$path" }
 }
-$toolchainResult = (& $toolchainVerifier | Out-String) | ConvertFrom-Json
-if ($toolchainResult.status -ne 'passed' -or -not $toolchainResult.environment.framework_sta_worker_passed) {
-    throw 'toolchain_or_framework_sta_preflight_failed'
+# A dry-run only enumerates candidates and checks output collisions. Native
+# environment/STA verification is mandatory for execution, not for planning.
+if (-not $DryRun) {
+    $toolchainResult = (& $toolchainVerifier | Out-String) | ConvertFrom-Json
+    if ($toolchainResult.status -ne 'passed' -or -not $toolchainResult.environment.framework_sta_worker_passed) {
+        throw 'toolchain_or_framework_sta_preflight_failed'
+    }
 }
 
 function Read-RawDataCorruptedManifest([string]$Path) {

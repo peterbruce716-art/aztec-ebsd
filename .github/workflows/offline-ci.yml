@@ -1,0 +1,22 @@
+name: Offline integrity and smoke
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  offline-windows:
+    runs-on: windows-2022
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify tracked source integrity
+        shell: pwsh
+        run: ./scripts/verify-source.ps1
+      - name: Test batch resource policy
+        shell: pwsh
+        run: ./scripts/test-parallel-resource-policy.ps1
+      - name: Build helpers and run vendor-free smoke tests
+        shell: pwsh
+        run: ./tests/smoke.ps1 -OutputDirectory (Join-Path $env:RUNNER_TEMP ('aztec-ebsd-smoke-' + [guid]::NewGuid().ToString('N')))
