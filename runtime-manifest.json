@@ -2,7 +2,7 @@
   "schema_version": 1,
   "package_id": "aztec-ebsd-source-build",
   "validated_aztec_version": "5.1.7829.1",
-  "file_count": 36,
+  "file_count": 37,
   "NativeFullMapFidelity": "not_accepted",
   "vendor_assemblies_included": false,
   "sample_or_reference_images_included": false,
@@ -39,8 +39,8 @@
     },
     {
       "relative_path": "README.md",
-      "sha256": "0667CB1F37E5390541B981D45CA839EB0064E130E0C838D53473A11AFE9B5E5E",
-      "bytes": 2161
+      "sha256": "3885C96A07C825E24C2A836A60118471C6BA036003F767226381167ECCAE69E3",
+      "bytes": 2577
     },
     {
       "relative_path": "references/aztec-ipf-standard.md",
@@ -49,8 +49,8 @@
     },
     {
       "relative_path": "references/aztec-native-cleanup.md",
-      "sha256": "DA1D9238ECBE391459162B01DD353B5BF034234A1A9FAB31C2FE9945CCC76067",
-      "bytes": 10585
+      "sha256": "B3E15F8A0968E189469874C666B755624A50FAFF3BE4055B216ECBFA65656949",
+      "bytes": 10518
     },
     {
       "relative_path": "references/aztec-native-toolchain.md",
@@ -59,8 +59,8 @@
     },
     {
       "relative_path": "references/cleanup-metrics-and-mtex.md",
-      "sha256": "D0E0317407B10BA7BB927491ADD666A3ED29879508F5AE279483BD93DC9C4900",
-      "bytes": 3719
+      "sha256": "1B829CED01C41E347547242DAF5523AF30DCD2F9C65E67103268C29B0AFC4E53",
+      "bytes": 3696
     },
     {
       "relative_path": "references/ebsd-workflow.md",
@@ -79,13 +79,13 @@
     },
     {
       "relative_path": "scripts/native-cleanup/native_cleanup_worker_optimized.ps1",
-      "sha256": "D26B8485987E241529644CE32BC48D67B456595DD87D4C041768B78BD5A6561F",
-      "bytes": 23703
+      "sha256": "60124F755F82A02976E0CB02BF1ACEFA1AB007FA7D960E2F1630F868D6B1CF07",
+      "bytes": 23701
     },
     {
       "relative_path": "scripts/native-cleanup/native_cleanup_worker.ps1",
-      "sha256": "164A6AAEDB09510150B8D44B6EA21C8D7D8132089705B24B91EAE01651195765",
-      "bytes": 19453
+      "sha256": "2FFE0213C8F0D6B277A062B51A913701A5922E6CC24FE368CB652BED8886B606",
+      "bytes": 19450
     },
     {
       "relative_path": "scripts/native-cleanup/NativeCleanupSnapshot.cs",
@@ -119,13 +119,13 @@
     },
     {
       "relative_path": "scripts/native-cleanup/verify_aztec_native_cleanup_run_optimized.ps1",
-      "sha256": "A048E3259DAC169A859F3726AA383192AA4F42CED225A394B5CAF619996792D3",
-      "bytes": 18361
+      "sha256": "C99E99FF147F82DFA8570F9458DFAD6DB9AEFE2C36006121A2C41540307916D3",
+      "bytes": 18360
     },
     {
       "relative_path": "scripts/native-cleanup/verify_aztec_native_cleanup_run.ps1",
-      "sha256": "9CE925F8E99302EC5B350CC4C333588CF89EE2C963BC9F90BDA319670B637F1D",
-      "bytes": 18032
+      "sha256": "4FB4AAF600480CDAB95B06E4083FAF6F9F595FE4F143088C64AB61E975247FBD",
+      "bytes": 18031
     },
     {
       "relative_path": "scripts/parallel-resource-policy.ps1",
@@ -144,8 +144,8 @@
     },
     {
       "relative_path": "scripts/run_aztec_native_fresh_batch.ps1",
-      "sha256": "D404527F55A435957D7A0C621DDA869EA7C52FDB0D62BAD6194746CF22BD7534",
-      "bytes": 20425
+      "sha256": "1B6FFD1DD83C2DAB47256428A544D269979FD31BDE0DD27D98C13DB459E1933F",
+      "bytes": 20616
     },
     {
       "relative_path": "scripts/test-parallel-resource-policy.ps1",
@@ -169,23 +169,28 @@
     },
     {
       "relative_path": "SKILL.md",
-      "sha256": "7986FB757E0B9173D78B3131DD09AC12FD98EB396B374CE830C7EADE2BF02A51",
-      "bytes": 19750
+      "sha256": "CA4E69C2BFDBBB1840A7FCA35CCC09C560B5FE0836007898C345B101A2D0AC32",
+      "bytes": 19769
     },
     {
       "relative_path": "tests/smoke.ps1",
-      "sha256": "AD653E3CE9425382F6538458604A8576615B4966BFB410448FB9F3F0389ABC9A",
-      "bytes": 7522
+      "sha256": "79B1AA4414D3F75F0978F5154C68AA8F37005A881A97FC277C4242883FF34791",
+      "bytes": 8658
     },
     {
       "relative_path": "source-manifest.json",
-      "sha256": "22402FA4B189F638EA9A455CE812CBD969B179C014B22D19C17D68F327B2D130",
-      "bytes": 11789
+      "sha256": "9EC649A0133422000436C14C499D5AF99E75D726C4CBACBFEA63FFEB203DAA2C",
+      "bytes": 11965
     },
     {
       "relative_path": "assets/aztec-native-toolchain/toolchain-manifest.json",
-      "sha256": "36CEBCBB7451D9BF79DABFD7B52EEB0ECE637266AAE59B9ADBCC78D8F852FAE3",
-      "bytes": 5955
+      "sha256": "E1592B41205904CC9E00AC496CB6558AAFFC7CA32FDDE92B42E1AC8632C2AFC9",
+      "bytes": 5956
+    },
+    {
+      "relative_path": ".github/workflows/offline-ci.yml",
+      "sha256": "8B15730743B441A2773DE4D13EF1E33EC3B0ED897FDBFE0D25E9F8021A7AF089",
+      "bytes": 636
     }
   ]
 }

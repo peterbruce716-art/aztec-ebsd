@@ -32,7 +32,9 @@ To rebuild the five self-built binaries from the checked-in C# sources:
 .\scripts\build-toolchain.ps1
 ```
 
-The build regenerates the relative-path integrity manifests. These manifests are integrity checks, not signatures.
+The build regenerates the toolchain and runtime integrity manifests (not `source-manifest.json`). If tracked sources change, refresh the source manifest's file inventory, byte lengths, and SHA-256 hashes first. These manifests are integrity checks, not signatures.
+
+GitHub Actions runs a vendor-free Windows smoke suite: it verifies tracked sources, rebuilds the five self-built helpers, and exercises BMP comparison and dry-run contracts. Passing offline CI **does not** verify native AZtec algorithms or full-map pixel fidelity.
 
 ## Native prerequisites
 

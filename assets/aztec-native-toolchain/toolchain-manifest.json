@@ -129,8 +129,8 @@
     },
     {
       "relative_path": "aztec_bmp_compare/p47_baseline/P47BaselineMetrics.cs",
-      "sha256": "A9BC57FFE5CFE4E86B534CD63547D26774756FDC5D1BF8F6827D083E9D665FC4",
-      "bytes": 3882
+      "sha256": "7F6AD84690536A294F6B250EC88F0353BC7F0C5D3797E8055B2AA0F91022D31F",
+      "bytes": 4324
     },
     {
       "relative_path": "03_tools/aztec_exporter/AZtecBmpExporter.exe",

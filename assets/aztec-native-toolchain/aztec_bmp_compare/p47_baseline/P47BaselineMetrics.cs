@@ -73,6 +73,16 @@ namespace AztecP47
             Metric[] result = { full, roi, outside };
             foreach (Metric m in result)
             {
+                // A full-canvas ROI has no outside pixels. Preserve the
+                // three-region contract with finite metrics for empty regions.
+                // Consumers must check Pixels == 0 before interpreting them.
+                if (m.Pixels == 0)
+                {
+                    m.ExactFraction = 1.0;
+                    m.Mae = 0.0;
+                    m.Rmse = 0.0;
+                    continue;
+                }
                 m.ExactFraction = (double)m.ExactPixels / m.Pixels;
                 m.Mae = m.AbsoluteChannelError / (3.0 * m.Pixels);
                 m.Rmse = Math.Sqrt(m.SquaredChannelError / (3.0 * m.Pixels));

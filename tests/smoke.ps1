@@ -90,6 +90,11 @@ public static class PublicBmpFixture {
     [PublicBmpFixture]::Write($changed,32,$true,$true)
     $exact = [AztecP47.BaselineMetrics]::Compare($bmp24,$bmp24,0,0,2,2)
     Check 'bmp_exact_identity' ($exact[0].Pixels -eq 6 -and $exact[0].ExactPixels -eq 6 -and $exact[0].Mae -eq 0)
+    $fullRoi = [AztecP47.BaselineMetrics]::Compare($bmp24,$bmp24,0,0,3,2)
+    Check 'bmp_full_roi_empty_outside_is_finite' ($fullRoi[1].Pixels -eq 6 -and
+        $fullRoi[2].Pixels -eq 0 -and $fullRoi[2].ExactPixels -eq 0 -and
+        $fullRoi[2].ExactFraction -eq 1.0 -and $fullRoi[2].Mae -eq 0.0 -and
+        $fullRoi[2].Rmse -eq 0.0)
     $formats = [AztecP47.BaselineMetrics]::Compare($bmp24,$bmp32,0,0,2,2)
     Check 'bmp_24_bottom_up_equals_32_top_down' ($formats[0].ExactPixels -eq 6 -and $formats[0].MaxChannelError -eq 0)
     $difference = [AztecP47.BaselineMetrics]::Compare($changed,$bmp24,0,0,2,2)
@@ -101,6 +106,16 @@ public static class PublicBmpFixture {
         $rejected = $_.Exception.ToString().Contains('invalid_roi')
     }
     Check 'bmp_invalid_roi_rejected' $rejected
+    # Inventory-only dry-run must not require a licensed AZtec installation.
+    $fixture = Join-Path $out 'dry-run-input'
+    [void][IO.Directory]::CreateDirectory($fixture)
+    [IO.File]::WriteAllText((Join-Path $fixture 'sample.cpr'),'offline fixture',[Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllBytes((Join-Path $fixture 'sample.crc'),[byte[]]@(0))
+    $dry = & (Join-Path $root 'scripts/run_aztec_native_fresh_batch.ps1') -InputRoot $fixture -RunId 'offline_smoke' -DryRun | ConvertFrom-Json
+    Check 'fresh_batch_dry_run_without_vendor_preflight' ($dry.status -eq 'dry_run' -and
+        $dry.candidates -eq 1 -and $dry.paired -eq 1 -and
+        $dry.output_directories_created -eq $false -and
+        -not (Test-Path -LiteralPath (Join-Path $fixture '.aztec_fresh_batch_logs')))
     $report = [ordered]@{ status='passed'; checks=$checks; check_count=$checks.Count; native_dataset_validation='not_run'; NativeFullMapFidelity='not_accepted' }
 } catch {
     $report = [ordered]@{ status='failed'; checks=$checks; error=$_.Exception.Message; native_dataset_validation='not_run'; NativeFullMapFidelity='not_accepted' }
